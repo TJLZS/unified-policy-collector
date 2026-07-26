@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>统一安全策略采集</title>
+    <meta
+      name="description"
+      content="面向靶场内网的Windows、Linux和安全设备统一策略采集控制台"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="统一安全策略采集首页">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span>
+          <strong>POLICY SCOPE</strong>
+          <small>统一安全策略采集</small>
+        </span>
+      </a>
+      <div class="top-status">
+        <span class="pulse" aria-hidden="true"></span>
+        本地安全会话
+      </div>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">UNIFIED COLLECTION CONSOLE · 靶场模式</p>
+          <h1 id="page-title">从一台采集机，<br />看清三类安全策略。</h1>
+        </div>
+        <div class="intro-copy">
+          <p>
+            连接 Windows、Linux 或安全设备，先验证能力，再执行只读采集。
+            凭据仅存在于当前任务内存，目标策略不会被修改。
+          </p>
+          <div class="coverage">
+            <span><b>03</b> 目标类型</span>
+            <span><b>07</b> 安全设备适配器</span>
+            <span><b>00</b> 持久化凭据</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <article class="panel collector-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">01</span>
+              <h2>配置采集目标</h2>
+            </div>
+            <span class="readonly-badge">READ ONLY</span>
+          </div>
+
+          <form id="collector-form" autocomplete="off">
+            <fieldset class="type-switch">
+              <legend>设备类型</legend>
+              <label>
+                <input type="radio" name="target_type" value="linux" checked />
+                <span>Linux</span>
+              </label>
+              <label>
+                <input type="radio" name="target_type" value="windows" />
+                <span>Windows</span>
+              </label>
+              <label>
+                <input type="radio" name="target_type" value="security" />
+                <span>安全设备</span>
+              </label>
+            </fieldset>
+
+            <div class="field security-only" hidden>
+              <label for="security-device">安全设备类型</label>
+              <select id="security-device" name="security_device"></select>
+              <p class="field-hint" id="adapter-hint"></p>
+            </div>
+
+            <div class="field-row">
+              <div class="field field-grow">
+                <label for="host">目标 IP / 主机名</label>
+                <input
+                  id="host"
+                  name="host"
+                  placeholder="例如 192.168.10.20"
+                  required
+                  spellcheck="false"
+                />
+              </div>
+              <div class="field field-port">
+                <label for="port">端口</label>
+                <input id="port" name="port" type="number" value="22" min="1" max="65535" required />
+              </div>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="username">用户名</label>
+                <input id="username" name="username" required autocomplete="username" />
+              </div>
+              <div class="field">
+                <label for="password">登录密码</label>
+                <div class="password-wrap">
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    required
+                    autocomplete="current-password"
+                  />
+                  <button class="reveal" type="button" data-reveal="password" aria-label="显示或隐藏登录密码">显示</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="credential-note">
+              <span aria-hidden="true">⌁</span>
+              密码仅用于当前任务，提交后立即从表单清除，不写入配置、日志或结果。
+            </div>
+
+            <details class="advanced">
+              <summary>高级选项 <span>按实际环境覆盖默认值</span></summary>
+              <div class="advanced-grid">
+                <label class="check-row ssh-only">
+                  <input id="use-sudo" name="use_sudo" type="checkbox" />
+                  <span>
+                    <b>使用 sudo 提权</b>
+                    <small>留空 sudo 密码时复用登录密码</small>
+                  </span>
+                </label>
+                <div class="field ssh-only" id="sudo-password-field" hidden>
+                  <label for="sudo-password">sudo 密码（可选）</label>
+                  <input id="sudo-password" name="sudo_password" type="password" autocomplete="off" />
+                </div>
+                <label class="check-row ssh-only">
+                  <input id="trust-key" name="trust_new_host_key" type="checkbox" />
+                  <span>
+                    <b>信任新的 SSH 主机密钥</b>
+                    <small>仅在隔离靶场且已确认目标指纹时启用</small>
+                  </span>
+                </label>
+                <label class="check-row windows-only" hidden>
+                  <input id="winrm-https" name="winrm_https" type="checkbox" />
+                  <span>
+                    <b>使用 HTTPS WinRM</b>
+                    <small>默认切换至 5986 端口</small>
+                  </span>
+                </label>
+                <label class="check-row windows-only" hidden>
+                  <input id="winrm-insecure" name="winrm_insecure" type="checkbox" />
+                  <span>
+                    <b>忽略自签名证书校验</b>
+                    <small>仅限已确认风险的靶场环境</small>
+                  </span>
+                </label>
+                <div class="field security-only" hidden>
+                  <label for="custom-paths">自定义规则路径（可选）</label>
+                  <textarea
+                    id="custom-paths"
+                    name="custom_paths"
+                    rows="3"
+                    placeholder="每行一个路径；留空使用适配器默认值"
+                  ></textarea>
+                </div>
+                <div class="field security-only docker-only" hidden>
+                  <label for="container-name">容器名称（可选）</label>
+                  <input
+                    id="container-name"
+                    name="container_name"
+                    placeholder="自动识别失败时填写"
+                  />
+                </div>
+              </div>
+            </details>
+
+            <div class="form-actions">
+              <button class="button button-secondary" type="submit" data-action="check">
+                <span>检查连接</span>
+                <small>CHECK</small>
+              </button>
+              <button class="button button-primary" type="submit" data-action="collect">
+                <span>开始采集</span>
+                <small>COLLECT →</small>
+              </button>
+            </div>
+            <p class="form-error" id="form-error" role="alert"></p>
+          </form>
+        </article>
+
+        <aside class="panel activity-panel" aria-live="polite">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">02</span>
+              <h2>任务状态</h2>
+            </div>
+            <button class="text-button" id="refresh-jobs" type="button">刷新</button>
+          </div>
+          <div id="jobs" class="jobs">
+            <div class="empty-state">
+              <span class="radar" aria-hidden="true"></span>
+              <h3>等待采集任务</h3>
+              <p>建议先执行连接检查，确认端口、认证和目标能力。</p>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="history-section" aria-labelledby="history-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LOCAL EVIDENCE</p>
+            <h2 id="history-title">最近采集结果</h2>
+          </div>
+          <p>结果保存在采集机本地 outputs 目录</p>
+        </div>
+        <div id="runs" class="run-grid">
+          <p class="history-empty">暂无本地采集记录。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>POLICY SCOPE / LOCAL CONSOLE</span>
+      <span>只读采集 · UUID 临时目录 · 自动清理</span>
+    </footer>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 [project]
 name = "unified-policy-collector"
-version = "0.1.0"
-description = "Windows、Linux和安全设备统一远程安全策略采集工具"
+version = "0.2.0"
+description = "Windows、Linux和安全设备统一远程安全策略采集工具与Web控制台"
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]
