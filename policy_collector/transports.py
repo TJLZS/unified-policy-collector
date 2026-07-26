@@ -210,8 +210,8 @@ def _ps_quote(value: str) -> str:
 
 class WinRMTransport:
     # Upload data is embedded in a PowerShell script and encoded again by
-    # pywinrm. Keep it well below Windows' 32,767-character command-line limit.
-    UPLOAD_CHUNK_SIZE = 4 * 1024
+    # pywinrm. Keep it well below Windows' 8191-character command-line limit.
+    UPLOAD_CHUNK_SIZE = 1 * 1024
     DOWNLOAD_CHUNK_SIZE = 48 * 1024
 
     def __init__(
