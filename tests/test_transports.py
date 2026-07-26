@@ -42,6 +42,22 @@ class _MemoryWinRMSession:
         return _Response()
 
 
+class _LengthLimitedWinRMSession(_MemoryWinRMSession):
+    WINDOWS_COMMAND_LINE_LIMIT = 32767
+
+    def __init__(self):
+        super().__init__()
+        self.command_lengths = []
+
+    def run_ps(self, script):
+        encoded_command = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        command_length = len("powershell.exe -encodedcommand ") + len(encoded_command)
+        self.command_lengths.append(command_length)
+        if command_length > self.WINDOWS_COMMAND_LINE_LIMIT:
+            return _Response(status_code=1, stderr="The command line is too long.")
+        return super().run_ps(script)
+
+
 class WinRMTransportTests(unittest.TestCase):
     def test_chunked_upload_and_download_round_trip(self):
         target = TargetConfig(
@@ -66,6 +82,32 @@ class WinRMTransportTests(unittest.TestCase):
             transport.download_file(r"C:\Temp\source.bin", downloaded)
 
             self.assertEqual(downloaded.read_bytes(), data)
+
+    def test_upload_chunks_fit_windows_command_line_limit(self):
+        target = TargetConfig(
+            TargetType.WINDOWS,
+            "10.0.0.9",
+            5985,
+            "Administrator",
+        )
+        session = _LengthLimitedWinRMSession()
+        transport = WinRMTransport(
+            target,
+            Credential(password="secret"),
+            session_factory=lambda *args, **kwargs: session,
+        )
+        data = b"A" * (50 * 1024)
+
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "payload.ps1"
+            source.write_bytes(data)
+            transport.upload_file(source, r"C:\Temp\payload.ps1")
+
+        self.assertEqual(bytes(session.files[r"C:\Temp\payload.ps1"]), data)
+        self.assertLess(
+            max(session.command_lengths),
+            _LengthLimitedWinRMSession.WINDOWS_COMMAND_LINE_LIMIT,
+        )
 
 
 class _CapabilitySSHTransport(SSHTransport):

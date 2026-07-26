@@ -209,7 +209,10 @@ def _ps_quote(value: str) -> str:
 
 
 class WinRMTransport:
-    CHUNK_SIZE = 48 * 1024
+    # Upload data is embedded in a PowerShell script and encoded again by
+    # pywinrm. Keep it well below Windows' 32,767-character command-line limit.
+    UPLOAD_CHUNK_SIZE = 4 * 1024
+    DOWNLOAD_CHUNK_SIZE = 48 * 1024
 
     def __init__(
         self,
@@ -295,10 +298,10 @@ class WinRMTransport:
         )
         if init.return_code != 0:
             raise TransportError(f"WinRM创建远程文件失败: {init.stderr}")
-        for offset in range(0, len(data), self.CHUNK_SIZE):
-            encoded = base64.b64encode(data[offset : offset + self.CHUNK_SIZE]).decode(
-                "ascii"
-            )
+        for offset in range(0, len(data), self.UPLOAD_CHUNK_SIZE):
+            encoded = base64.b64encode(
+                data[offset : offset + self.UPLOAD_CHUNK_SIZE]
+            ).decode("ascii")
             script = (
                 f"$b=[Convert]::FromBase64String({_ps_quote(encoded)});"
                 f"$f=[IO.File]::Open({quoted_path},[IO.FileMode]::Append,"
@@ -330,8 +333,8 @@ class WinRMTransport:
         local_path = Path(local_path)
         local_path.parent.mkdir(parents=True, exist_ok=True)
         with local_path.open("wb") as stream:
-            for offset in range(0, length, self.CHUNK_SIZE):
-                count = min(self.CHUNK_SIZE, length - offset)
+            for offset in range(0, length, self.DOWNLOAD_CHUNK_SIZE):
+                count = min(self.DOWNLOAD_CHUNK_SIZE, length - offset)
                 script = (
                     f"$f=[IO.File]::OpenRead({quoted_path});"
                     f"$null=$f.Seek({offset},[IO.SeekOrigin]::Begin);"
