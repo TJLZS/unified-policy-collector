@@ -26,8 +26,14 @@ class _WebFakeCollector:
 class WebAppTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        self.targets = []
+
+        def collector_factory(target, _credential):
+            self.targets.append(target)
+            return _WebFakeCollector()
+
         service = JobService(
-            collector_factory=lambda _target, _credential: _WebFakeCollector(),
+            collector_factory=collector_factory,
             output_root=Path(self.temp.name),
         )
         self.client = TestClient(create_app(service))
@@ -112,8 +118,44 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("统一安全策略采集", response.text)
         self.assertIn("开始采集", response.text)
+        self.assertIn("使用默认规则路径", response.text)
+        self.assertIn("修改路径", response.text)
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
         self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
+
+    def test_security_paths_use_defaults_until_explicitly_overridden(self):
+        default_response = self.client.post(
+            "/api/jobs",
+            json={
+                "action": "check",
+                "target_type": "security",
+                "security_device": "suricata",
+                "host": "10.0.0.10",
+                "username": "root",
+                "password": "secret",
+                "custom_paths": [],
+            },
+        )
+        self._wait_for_job(default_response.json()["id"])
+        self.assertEqual(self.targets[-1].custom_paths, ())
+
+        custom_response = self.client.post(
+            "/api/jobs",
+            json={
+                "action": "check",
+                "target_type": "security",
+                "security_device": "suricata",
+                "host": "10.0.0.10",
+                "username": "root",
+                "password": "secret",
+                "custom_paths": ["/srv/suricata/rules", "/data/local.rules"],
+            },
+        )
+        self._wait_for_job(custom_response.json()["id"])
+        self.assertEqual(
+            self.targets[-1].custom_paths,
+            ("/srv/suricata/rules", "/data/local.rules"),
+        )
 
 
 if __name__ == "__main__":

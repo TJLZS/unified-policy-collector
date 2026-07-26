@@ -79,6 +79,35 @@
               <p class="field-hint" id="adapter-hint"></p>
             </div>
 
+            <section class="rule-path-card security-only" hidden aria-labelledby="rule-path-title">
+              <div class="rule-path-heading">
+                <div>
+                  <span class="mini-label">RULE STORAGE</span>
+                  <h3 id="rule-path-title">规则存储路径</h3>
+                </div>
+                <span class="path-mode" id="path-mode">默认</span>
+              </div>
+              <div id="default-paths" class="default-paths"></div>
+              <div id="custom-path-editor" class="custom-path-editor" hidden>
+                <label for="custom-paths">自定义规则路径</label>
+                <textarea
+                  id="custom-paths"
+                  name="custom_paths"
+                  rows="4"
+                  placeholder="每行输入一个规则文件或目录路径"
+                ></textarea>
+                <button class="path-reset" id="reset-paths" type="button">
+                  恢复默认
+                </button>
+              </div>
+              <div class="rule-path-footer">
+                <p id="path-status">使用默认规则路径；不修改即可直接采集。</p>
+                <button class="path-edit" id="edit-paths" type="button">
+                  修改路径
+                </button>
+              </div>
+            </section>
+
             <div class="field-row">
               <div class="field field-grow">
                 <label for="host">目标 IP / 主机名</label>
@@ -156,15 +185,6 @@
                     <small>仅限已确认风险的靶场环境</small>
                   </span>
                 </label>
-                <div class="field security-only" hidden>
-                  <label for="custom-paths">自定义规则路径（可选）</label>
-                  <textarea
-                    id="custom-paths"
-                    name="custom_paths"
-                    rows="3"
-                    placeholder="每行一个路径；留空使用适配器默认值"
-                  ></textarea>
-                </div>
                 <div class="field security-only docker-only" hidden>
                   <label for="container-name">容器名称（可选）</label>
                   <input

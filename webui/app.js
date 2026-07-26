@@ -11,10 +11,19 @@ const useSudoInput = document.querySelector("#use-sudo");
 const sudoPasswordField = document.querySelector("#sudo-password-field");
 const httpsInput = document.querySelector("#winrm-https");
 const insecureInput = document.querySelector("#winrm-insecure");
+const defaultPaths = document.querySelector("#default-paths");
+const customPathEditor = document.querySelector("#custom-path-editor");
+const customPathsInput = document.querySelector("#custom-paths");
+const editPathsButton = document.querySelector("#edit-paths");
+const resetPathsButton = document.querySelector("#reset-paths");
+const pathMode = document.querySelector("#path-mode");
+const pathStatus = document.querySelector("#path-status");
 
 let metadata = { security_devices: [] };
 let activeJobs = [];
 let pollTimer = null;
+let pathsEditing = false;
+let displayedAdapterKey = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -35,6 +44,29 @@ function selectedAdapter() {
   );
 }
 
+function setPathEditing(editing) {
+  pathsEditing = editing;
+  defaultPaths.hidden = editing;
+  customPathEditor.hidden = !editing;
+  editPathsButton.hidden = editing;
+  pathMode.textContent = editing ? "自定义" : "默认";
+  pathMode.classList.toggle("path-mode-custom", editing);
+  pathStatus.textContent = editing
+    ? "将使用下面的自定义路径；每行可以填写一个文件或目录。"
+    : "使用默认规则路径；不修改即可直接采集。";
+  if (editing) {
+    const adapter = selectedAdapter();
+    if (adapter && !customPathsInput.value.trim()) {
+      customPathsInput.value = adapter.paths.join("\n");
+    }
+    customPathsInput.required = true;
+    customPathsInput.focus();
+  } else {
+    customPathsInput.required = false;
+    customPathsInput.value = "";
+  }
+}
+
 function updateAdapter() {
   const adapter = selectedAdapter();
   if (!adapter) return;
@@ -43,8 +75,13 @@ function updateAdapter() {
   document.querySelectorAll(".docker-only").forEach((element) => {
     element.hidden = !adapter.docker;
   });
-  document.querySelector("#custom-paths").placeholder =
-    `每行一个路径；默认：\n${adapter.paths.join("\n")}`;
+  if (displayedAdapterKey !== adapter.key) {
+    displayedAdapterKey = adapter.key;
+    defaultPaths.innerHTML = adapter.paths
+      .map((path) => `<code>${escapeHtml(path)}</code>`)
+      .join("");
+    setPathEditing(false);
+  }
 }
 
 function updateTargetFields(resetPort = true) {
@@ -212,9 +249,8 @@ function startPolling() {
 }
 
 function requestPayload(action) {
-  const paths = document
-    .querySelector("#custom-paths")
-    .value.split(/\r?\n/)
+  const paths = customPathsInput.value
+    .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
   return {
@@ -228,7 +264,8 @@ function requestPayload(action) {
     sudo_password: sudoPasswordInput.value || null,
     security_device:
       targetType() === "security" ? securitySelect.value : null,
-    custom_paths: targetType() === "security" ? paths : [],
+    custom_paths:
+      targetType() === "security" && pathsEditing ? paths : [],
     container_name:
       targetType() === "security"
         ? form.elements.container_name.value.trim() || null
@@ -327,5 +364,7 @@ document.querySelectorAll(".reveal").forEach((button) => {
 });
 
 document.querySelector("#refresh-jobs").addEventListener("click", loadJobs);
+editPathsButton.addEventListener("click", () => setPathEditing(true));
+resetPathsButton.addEventListener("click", () => setPathEditing(false));
 
 initialize();

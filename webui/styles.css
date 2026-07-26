@@ -309,6 +309,113 @@ fieldset {
   line-height: 1.5;
 }
 
+.rule-path-card {
+  margin: 2px 0 22px;
+  border: 1px solid var(--line);
+  background: var(--base);
+}
+
+.rule-path-heading,
+.rule-path-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rule-path-heading {
+  min-height: 67px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rule-path-heading h3 {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mini-label {
+  color: var(--dim);
+  font: 600 8px/1 ui-monospace, "Cascadia Code", monospace;
+  letter-spacing: 0.12em;
+}
+
+.path-mode {
+  padding: 5px 8px;
+  border: 1px solid var(--green-deep);
+  color: var(--green);
+  font: 600 9px/1 ui-monospace, "Cascadia Code", monospace;
+}
+
+.path-mode-custom {
+  border-color: rgba(255, 184, 107, 0.35);
+  color: var(--amber);
+}
+
+.default-paths {
+  padding: 13px 14px 5px;
+}
+
+.default-paths code {
+  display: block;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--green-deep);
+  background: var(--surface);
+  color: var(--muted);
+  font: 10px/1.45 ui-monospace, "Cascadia Code", monospace;
+  overflow-wrap: anywhere;
+}
+
+.custom-path-editor {
+  padding: 14px;
+}
+
+.custom-path-editor label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.custom-path-editor textarea {
+  border-color: rgba(255, 184, 107, 0.45);
+}
+
+.path-reset,
+.path-edit {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+}
+
+.path-reset {
+  margin-top: 8px;
+  padding: 0;
+  color: var(--amber);
+}
+
+.rule-path-footer {
+  min-height: 50px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.rule-path-footer p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.path-edit {
+  flex: 0 0 auto;
+  padding: 6px 0 6px 10px;
+  color: var(--green);
+}
+
 input,
 select,
 textarea {
