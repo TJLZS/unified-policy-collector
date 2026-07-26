@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import json
+import re
 import shlex
 import stat
 import sys
@@ -11,7 +11,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from .adapters import SecurityDeviceAdapter
+from .adapters import SecurityDeviceAdapter, default_registry
 from .errors import CollectorError, TransportError
 from .models import Credential, ModuleResult, TargetConfig
 from .transports import SSHTransport, WinRMTransport
@@ -315,10 +315,17 @@ class SecurityDeviceCollector:
             raise TransportError(f"无法创建安全设备临时目录: {mkdir.stderr}")
         self.transport.upload_tree(self.payload_root, remote_payload)
 
+        default_paths = default_registry().resolve(self.adapter.key).paths
+        path_mode = (
+            "custom"
+            if self.target.custom_paths or self.adapter.paths != default_paths
+            else "default"
+        )
         config = {
             "key": self.adapter.key,
             "display_name": self.adapter.display_name,
             "paths": list(self.adapter.paths),
+            "path_mode": path_mode,
             "status_commands": list(self.adapter.status_commands),
             "docker": self.adapter.docker,
             "container_patterns": list(self.adapter.container_patterns),

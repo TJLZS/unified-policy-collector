@@ -205,6 +205,7 @@ def main():
     args = parser.parse_args()
 
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    path_mode = config.get("path_mode", "default")
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     try:
@@ -221,6 +222,8 @@ def main():
                     "return_code": 0,
                     "message": "已采集{}个路径".format(len(copied)),
                     "copied_paths": copied,
+                    "path_mode": path_mode,
+                    "output_dir": "rules",
                 }
             )
         for index, error in enumerate(errors, 1):
@@ -231,6 +234,8 @@ def main():
                     "return_code": 2,
                     "message": error,
                     "copied_paths": [],
+                    "path_mode": path_mode,
+                    "output_dir": "status",
                 }
             )
         if not manifest:
@@ -241,6 +246,8 @@ def main():
                     "return_code": 2,
                     "message": "未采集到任何规则路径",
                     "copied_paths": [],
+                    "path_mode": path_mode,
+                    "output_dir": "status",
                 }
             )
         return_code = 0 if copied and not errors else 2
@@ -255,6 +262,8 @@ def main():
                 "return_code": return_code,
                 "message": message,
                 "copied_paths": [],
+                "path_mode": path_mode,
+                "output_dir": "status",
             }
         ]
     (output / "collection_manifest.json").write_text(

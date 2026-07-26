@@ -52,6 +52,47 @@ class WebAppTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("Web任务未在预期时间内完成")
 
+    def _write_historical_run(self):
+        run_dir = (
+            Path(self.temp.name)
+            / "windows"
+            / "10.0.0.9"
+            / "20260726_120000_000000"
+        )
+        run_dir.mkdir(parents=True)
+        summary = {
+            "target_type": "windows",
+            "target_ip": "10.0.0.9",
+            "port": 5985,
+            "username": "Administrator",
+            "started_at": "2026-07-26T12:00:00+00:00",
+            "finished_at": "2026-07-26T12:01:00+00:00",
+            "status": "partial",
+            "successful_modules": ["Get-FirewallRules"],
+            "failed_modules": ["Get-LAPSSettings"],
+            "modules": [
+                {
+                    "name": "Get-FirewallRules",
+                    "success": True,
+                    "return_code": 0,
+                    "message": "",
+                },
+                {
+                    "name": "Get-LAPSSettings",
+                    "success": False,
+                    "return_code": 1,
+                    "message": "not recognized as the name of a cmdlet",
+                },
+            ],
+            "error": None,
+            "cleanup_succeeded": True,
+        }
+        (run_dir / "collection_summary.json").write_text(
+            json.dumps(summary),
+            encoding="utf-8",
+        )
+        return run_dir
+
     def test_check_job_never_exposes_or_persists_password(self):
         secret = "NeverPersistThis!"
         response = self.client.post(
@@ -156,6 +197,69 @@ class WebAppTests(unittest.TestCase):
             self.targets[-1].custom_paths,
             ("/srv/suricata/rules", "/data/local.rules"),
         )
+
+    def test_runs_api_returns_opaque_id_dual_status_and_counts(self):
+        self._write_historical_run()
+
+        response = self.client.get("/api/runs")
+
+        self.assertEqual(response.status_code, 200)
+        run = response.json()[0]
+        self.assertEqual(len(run["run_id"]), 64)
+        self.assertNotIn("/", run["run_id"])
+        self.assertEqual(run["collection_status"], "partial")
+        self.assertEqual(run["assessment_status"], "success")
+        self.assertEqual(run["counts"]["success"], 1)
+        self.assertEqual(run["counts"]["not_applicable"], 1)
+
+    def test_run_detail_and_report_download_use_run_id_not_paths(self):
+        self._write_historical_run()
+        run_id = self.client.get("/api/runs").json()[0]["run_id"]
+
+        detail = self.client.get(f"/api/runs/{run_id}")
+        report = self.client.get(f"/api/runs/{run_id}/report")
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["run_id"], run_id)
+        self.assertEqual(detail.json()["assessment_status"], "success")
+        self.assertEqual(report.status_code, 200)
+        self.assertIn(
+            "attachment",
+            report.headers["content-disposition"],
+        )
+        self.assertEqual(report.json()["run_id"], run_id)
+
+    def test_unknown_or_path_like_run_id_is_rejected(self):
+        self._write_historical_run()
+
+        unknown = self.client.get("/api/runs/not-a-real-run")
+        path_like = self.client.get("/api/runs/%2E%2E%2Fcollection_summary.json")
+
+        self.assertEqual(unknown.status_code, 404)
+        self.assertEqual(path_like.status_code, 404)
+        self.assertNotIn("collection_summary", unknown.text)
+
+    def test_analysis_detail_page_is_served_without_resolving_a_client_path(self):
+        response = self.client.get("/runs/not-a-real-run")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("采集结果分析", response.text)
+        self.assertIn("analysis.js", response.text)
+
+    def test_web_assets_render_dual_status_filters_and_escaped_evidence(self):
+        home_script = self.client.get("/assets/app.js")
+        analysis_script = self.client.get("/assets/analysis.js")
+
+        self.assertEqual(home_script.status_code, 200)
+        self.assertIn("assessment_status", home_script.text)
+        self.assertIn("查看分析", home_script.text)
+        self.assertIn("/runs/", home_script.text)
+        self.assertIn("escapeHtml(formatTime(run.started_at))", home_script.text)
+        self.assertEqual(analysis_script.status_code, 200)
+        self.assertIn("module-search", analysis_script.text)
+        self.assertIn("status-filter", analysis_script.text)
+        self.assertIn("evidence_excerpt", analysis_script.text)
+        self.assertIn("escapeHtml", analysis_script.text)
 
 
 if __name__ == "__main__":

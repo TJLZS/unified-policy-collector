@@ -36,6 +36,7 @@ class _FakeSSHTransport:
 
     def upload_file(self, local_path, remote_path):
         self.uploaded_file = (Path(local_path), remote_path)
+        self.uploaded_file_content = Path(local_path).read_text(encoding="utf-8")
 
     def download_file(self, remote_path, local_path):
         with tarfile.open(local_path, "w:gz") as archive:
@@ -289,6 +290,8 @@ class SecurityCollectorTests(unittest.TestCase):
                     for command in transport.commands
                 )
             )
+            uploaded_config = json.loads(transport.uploaded_file_content)
+            self.assertEqual(uploaded_config["path_mode"], "default")
 
     def test_security_payload_reports_partial_when_one_path_is_missing(self):
         payload = (
@@ -308,6 +311,7 @@ class SecurityCollectorTests(unittest.TestCase):
                     {
                         "key": "suricata",
                         "paths": [str(existing), str(root / "missing.rules")],
+                        "path_mode": "custom",
                         "status_commands": [],
                         "docker": False,
                     }
@@ -336,6 +340,13 @@ class SecurityCollectorTests(unittest.TestCase):
             self.assertEqual(
                 [item["success"] for item in manifest],
                 [True, False],
+            )
+            self.assertEqual(
+                [item["path_mode"] for item in manifest],
+                ["custom", "custom"],
+            )
+            self.assertTrue(
+                all(item["output_dir"] in {"rules", "status"} for item in manifest)
             )
 
 

@@ -117,6 +117,8 @@ function statusLabel(status) {
     success: "成功",
     partial: "部分完成",
     failed: "失败",
+    not_applicable: "不适用",
+    skipped: "跳过",
   };
   return labels[status] || status;
 }
@@ -177,11 +179,11 @@ function renderJobs() {
               <strong>${host}</strong>
               <small>${type} · ${job.action === "check" ? "连接检查" : "策略采集"}</small>
             </div>
-            <span class="status status-${escapeHtml(job.status)}">${statusLabel(job.status)}</span>
+            <span class="status status-${escapeHtml(job.status)}">${escapeHtml(statusLabel(job.status))}</span>
           </div>
           <p class="job-message">${escapeHtml(job.message)}</p>
           <div class="job-meta">
-            <span>${formatTime(job.created_at)}</span>
+            <span>${escapeHtml(formatTime(job.created_at))}</span>
             <span>${escapeHtml(job.id.slice(0, 8))}</span>
           </div>
           ${jobResultMarkup(job)}
@@ -198,19 +200,33 @@ function renderRuns(runs) {
   }
   runsContainer.innerHTML = runs
     .slice(0, 9)
-    .map((run) => `
-      <article class="run-card">
-        <div>
-          <span class="status status-${escapeHtml(run.status)}">${statusLabel(run.status)}</span>
-          <h3>${escapeHtml(run.target_ip)}</h3>
-          <p>${escapeHtml(run.target_type)} · ${formatTime(run.started_at)}</p>
-        </div>
-        <div>
-          <small>成功 ${(run.successful_modules || []).length} · 失败 ${(run.failed_modules || []).length}</small>
-          <code>${escapeHtml(run.run_dir)}</code>
-        </div>
-      </article>
-    `)
+    .map((run) => {
+      const collectionStatus = run.collection_status || "failed";
+      const assessmentStatus = run.assessment_status || "failed";
+      const counts = run.counts || {};
+      return `
+        <article class="run-card">
+          <div>
+            <div class="run-statuses">
+              <span>
+                <small>原始</small>
+                <b class="status status-${escapeHtml(collectionStatus)}">${escapeHtml(statusLabel(collectionStatus))}</b>
+              </span>
+              <span>
+                <small>有效</small>
+                <b class="status status-${escapeHtml(assessmentStatus)}">${escapeHtml(statusLabel(assessmentStatus))}</b>
+              </span>
+            </div>
+            <h3>${escapeHtml(run.target_ip)}</h3>
+            <p>${escapeHtml(run.target_type)} · ${escapeHtml(formatTime(run.started_at))}</p>
+          </div>
+          <div>
+            <small>成功 ${Number(counts.success || 0)} · 失败 ${Number(counts.failed || 0)} · 不适用 ${Number(counts.not_applicable || 0)}</small>
+            <a class="run-analysis-link" href="/runs/${encodeURIComponent(run.run_id)}">查看分析 →</a>
+          </div>
+        </article>
+      `;
+    })
     .join("");
 }
 

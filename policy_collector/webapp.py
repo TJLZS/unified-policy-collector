@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import re
 import threading
 import uuid
 from collections.abc import Awaitable, Callable
@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from starlette.responses import Response
 
 from .adapters import AdapterRegistry, default_registry
+from .analysis import ResultAnalysisService, RunNotFoundError
 from .factory import create_collector
 from .models import Credential, TargetConfig, TargetType
 from .orchestrator import CollectionOrchestrator, CollectorFactory
@@ -26,6 +27,7 @@ from .security import redact_text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "webui"
+RUN_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _now_iso() -> str:
@@ -119,6 +121,7 @@ class JobService:
         self.registry = registry or default_registry()
         self.collector_factory = collector_factory or create_collector
         self.output_root = Path(output_root or PROJECT_ROOT / "outputs")
+        self.analysis = ResultAnalysisService(self.output_root)
         self.store = JobStore()
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
@@ -252,31 +255,12 @@ class JobService:
             )
 
     def recent_runs(self, limit: int = 20) -> list[dict[str, object]]:
-        if not self.output_root.exists():
-            return []
-        summaries = sorted(
-            self.output_root.rglob("collection_summary.json"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-        runs: list[dict[str, object]] = []
-        for summary_path in summaries[:limit]:
-            try:
-                data = json.loads(summary_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            runs.append(
-                {
-                    "target_type": data.get("target_type"),
-                    "target_ip": data.get("target_ip"),
-                    "status": data.get("status"),
-                    "started_at": data.get("started_at"),
-                    "successful_modules": data.get("successful_modules", []),
-                    "failed_modules": data.get("failed_modules", []),
-                    "run_dir": str(summary_path.parent),
-                }
-            )
-        return runs
+        return self.analysis.list_runs(limit=limit)
+
+    def analyze_run(self, run_id: str) -> dict[str, object]:
+        if RUN_ID_PATTERN.fullmatch(run_id) is None:
+            raise RunNotFoundError(run_id)
+        return self.analysis.analyze(run_id)
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -317,6 +301,10 @@ def create_app(service: JobService | None = None) -> FastAPI:
     @app.get("/")
     def home() -> FileResponse:
         return FileResponse(WEB_ROOT / "index.html")
+
+    @app.get("/runs/{run_id}")
+    def analysis_page(run_id: str) -> FileResponse:
+        return FileResponse(WEB_ROOT / "analysis.html")
 
     @app.get("/api/meta")
     def meta() -> dict[str, object]:
@@ -359,6 +347,26 @@ def create_app(service: JobService | None = None) -> FastAPI:
     @app.get("/api/runs")
     def recent_runs() -> list[dict[str, object]]:
         return active_service.recent_runs()
+
+    @app.get("/api/runs/{run_id}/report")
+    def download_report(run_id: str) -> JSONResponse:
+        try:
+            report = active_service.analyze_run(run_id)
+        except RunNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="采集记录不存在") from exc
+        return JSONResponse(
+            report,
+            headers={
+                "Content-Disposition": 'attachment; filename="analysis_report.json"'
+            },
+        )
+
+    @app.get("/api/runs/{run_id}")
+    def run_detail(run_id: str) -> dict[str, object]:
+        try:
+            return active_service.analyze_run(run_id)
+        except RunNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="采集记录不存在") from exc
 
     app.mount("/assets", StaticFiles(directory=WEB_ROOT), name="assets")
     return app

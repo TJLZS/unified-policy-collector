@@ -741,6 +741,11 @@ textarea::placeholder {
   color: var(--red);
 }
 
+.status-not_applicable,
+.status-skipped {
+  color: var(--muted);
+}
+
 .job-message {
   margin: 13px 0 10px;
   line-height: 1.5;
@@ -822,6 +827,292 @@ textarea::placeholder {
   font-size: 9px;
 }
 
+.run-statuses {
+  display: flex;
+  gap: 12px;
+}
+
+.run-statuses > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-statuses small {
+  color: var(--dim);
+  font: 600 8px/1 ui-monospace, "Cascadia Code", monospace;
+}
+
+.run-statuses .status {
+  display: inline-block;
+}
+
+.run-analysis-link,
+.back-link {
+  color: var(--green);
+  text-decoration: none;
+}
+
+.run-analysis-link {
+  display: inline-block;
+  margin-top: 14px;
+  font: 600 11px/1 ui-monospace, "Cascadia Code", monospace;
+}
+
+.run-analysis-link:hover,
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.analysis-main {
+  padding-bottom: 72px;
+}
+
+.analysis-loading,
+.analysis-error {
+  min-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.analysis-loading {
+  color: var(--muted);
+}
+
+.analysis-error h1 {
+  margin-bottom: 16px;
+}
+
+.analysis-error > p:not(.eyebrow) {
+  color: var(--muted);
+}
+
+.analysis-error .button {
+  width: 190px;
+  margin-top: 18px;
+  text-decoration: none;
+}
+
+.analysis-hero {
+  min-height: 310px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 36px;
+  padding: 74px 0 44px;
+}
+
+.analysis-hero h1 {
+  margin-bottom: 15px;
+}
+
+.analysis-meta {
+  color: var(--muted);
+}
+
+.report-download {
+  width: 220px;
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+
+.status-overview {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  background: var(--line);
+  gap: 1px;
+}
+
+.status-overview article {
+  min-height: 112px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--surface);
+}
+
+.status-overview small,
+.evidence-block > small,
+.recommendations > small {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.status-overview strong {
+  font: 650 25px/1 ui-monospace, "Cascadia Code", monospace;
+}
+
+.status-text.status-success {
+  color: var(--green);
+}
+
+.status-text.status-partial {
+  color: var(--amber);
+}
+
+.status-text.status-failed {
+  color: var(--red);
+}
+
+.analysis-section {
+  padding-top: 72px;
+}
+
+.issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.issue-card,
+.analysis-clear {
+  padding: 22px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.analysis-clear {
+  color: var(--green);
+}
+
+.analysis-clear p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.issue-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.issue-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.issue-heading h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.issue-heading > code {
+  color: var(--red);
+  font-size: 10px;
+}
+
+.issue-reason {
+  margin: 18px 0;
+  color: var(--ink);
+  line-height: 1.65;
+}
+
+.issue-meta {
+  display: flex;
+  gap: 36px;
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.issue-meta div {
+  display: flex;
+  gap: 8px;
+}
+
+.issue-meta dt {
+  color: var(--dim);
+}
+
+.issue-meta dd {
+  margin: 0;
+}
+
+.evidence-block,
+.recommendations {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--base);
+}
+
+.evidence-block pre {
+  margin: 9px 0 0;
+  overflow: auto;
+  color: var(--amber);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 10px/1.7 ui-monospace, "Cascadia Code", monospace;
+}
+
+.evidence-empty {
+  margin: 9px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.recommendations ol {
+  margin: 9px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.analysis-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(170px, 0.3fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.analysis-toolbar label > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.module-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+}
+
+.module-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 11px;
+}
+
+.module-table th,
+.module-table td {
+  padding: 15px 13px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.module-table th {
+  color: var(--dim);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.module-table td:nth-child(3) {
+  min-width: 280px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.module-table td code {
+  color: var(--green);
+  word-break: break-word;
+}
+
 .history-empty {
   grid-column: 1 / -1;
   padding: 35px;
@@ -865,6 +1156,10 @@ footer {
   .run-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .status-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -892,7 +1187,8 @@ footer {
   .field-row:has(.field-port),
   .advanced-grid,
   .form-actions,
-  .run-grid {
+  .run-grid,
+  .analysis-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -913,6 +1209,26 @@ footer {
 
   .section-heading {
     align-items: start;
+  }
+
+  .analysis-hero {
+    min-height: 260px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .report-download {
+    width: 100%;
+  }
+
+  .status-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .issue-heading,
+  .issue-meta {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   footer {

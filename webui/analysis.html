@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>采集结果分析 · 统一安全策略采集</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body class="analysis-body">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">P</span>
+        <span>
+          <strong>POLICY COLLECTOR</strong>
+          <small>采集结果分析</small>
+        </span>
+      </a>
+      <a class="back-link" href="/">← 返回采集首页</a>
+    </header>
+    <main class="analysis-main">
+      <section class="analysis-loading" id="analysis-loading">
+        正在读取本地分析报告…
+      </section>
+      <section class="analysis-error" id="analysis-error" hidden>
+        <p class="eyebrow">REPORT UNAVAILABLE</p>
+        <h1>无法读取该采集记录</h1>
+        <p id="analysis-error-message">记录可能不存在或已被移动。</p>
+        <a class="button button-secondary" href="/">返回采集首页</a>
+      </section>
+      <div id="analysis-content" hidden>
+        <section class="analysis-hero">
+          <div>
+            <p class="eyebrow">LOCAL RESULT ANALYSIS</p>
+            <h1 id="analysis-target">采集结果分析</h1>
+            <p class="analysis-meta" id="analysis-meta"></p>
+          </div>
+          <a class="button button-primary report-download" id="report-download">
+            <span>下载 JSON 报告</span>
+            <small>REPORT</small>
+          </a>
+        </section>
+
+        <section class="status-overview" aria-label="状态概览">
+          <article>
+            <small>原始采集状态</small>
+            <strong id="collection-status"></strong>
+          </article>
+          <article>
+            <small>分析后有效状态</small>
+            <strong id="assessment-status"></strong>
+          </article>
+          <article>
+            <small>成功</small>
+            <strong id="count-success">0</strong>
+          </article>
+          <article>
+            <small>失败</small>
+            <strong id="count-failed">0</strong>
+          </article>
+          <article>
+            <small>不适用</small>
+            <strong id="count-not-applicable">0</strong>
+          </article>
+          <article>
+            <small>跳过</small>
+            <strong id="count-skipped">0</strong>
+          </article>
+        </section>
+
+        <section class="analysis-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">FAILED FIRST</p>
+              <h2>需要处理的项目</h2>
+            </div>
+            <p>仅显示脱敏、限长证据片段</p>
+          </div>
+          <div class="issue-list" id="issue-list"></div>
+        </section>
+
+        <section class="analysis-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ALL MODULES</p>
+              <h2>全部采集模块</h2>
+            </div>
+          </div>
+          <div class="analysis-toolbar">
+            <label>
+              <span>按模块名搜索</span>
+              <input id="module-search" type="search" placeholder="例如 Firewall、LAPS">
+            </label>
+            <label>
+              <span>按状态筛选</span>
+              <select id="status-filter">
+                <option value="all">全部状态</option>
+                <option value="failed">失败</option>
+                <option value="success">成功</option>
+                <option value="not_applicable">不适用</option>
+                <option value="skipped">跳过</option>
+              </select>
+            </label>
+          </div>
+          <div class="module-table-wrap">
+            <table class="module-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>模块</th>
+                  <th>原因</th>
+                  <th>返回码</th>
+                  <th>证据文件</th>
+                </tr>
+              </thead>
+              <tbody id="module-table-body"></tbody>
+            </table>
+          </div>
+          <p class="history-empty" id="module-empty" hidden>没有匹配的模块。</p>
+        </section>
+      </div>
+    </main>
+    <footer>
+      <span>OFFLINE ANALYSIS / READ ONLY</span>
+      <span>原始采集结果保持不变</span>
+    </footer>
+    <script src="/assets/analysis.js" defer></script>
+  </body>
+</html>

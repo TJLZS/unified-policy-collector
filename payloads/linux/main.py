@@ -458,6 +458,7 @@ def run_all_strategies(
                     "success": success,
                     "return_code": 0 if success else 1,
                     "message": message,
+                    "output_dir": str(item["output_subdir"]),
                 }
             )
         with open(
