@@ -1,0 +1,15 @@
+[project]
+name = "unified-policy-collector"
+version = "0.1.0"
+description = "Windows、Linux和安全设备统一远程安全策略采集工具"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+warn_unused_ignores = true
+exclude = ["payloads/"]

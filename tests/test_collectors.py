@@ -1,0 +1,229 @@
+import io
+import tarfile
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+
+from policy_collector.adapters import default_registry
+from policy_collector.collectors import (
+    LinuxCollector,
+    SecurityDeviceCollector,
+    WindowsCollector,
+)
+from policy_collector.models import Credential, TargetConfig, TargetType
+from policy_collector.transports import CommandResult
+
+
+class _FakeSSHTransport:
+    def __init__(self):
+        self.commands = []
+        self.uploaded = None
+        self.closed = False
+
+    def check(self):
+        return {"connected": True, "python3": "3.10"}
+
+    def run(self, command, *, sudo=False, sudo_password=None, timeout=300):
+        self.commands.append(command)
+        return CommandResult(return_code=0, stdout="ok", stderr="")
+
+    def upload_tree(self, local_path, remote_path):
+        self.uploaded = (Path(local_path), remote_path)
+
+    def upload_file(self, local_path, remote_path):
+        self.uploaded_file = (Path(local_path), remote_path)
+
+    def download_file(self, remote_path, local_path):
+        with tarfile.open(local_path, "w:gz") as archive:
+            content = b"firewall rules"
+            info = tarfile.TarInfo("Linux_firewall_config/rules.txt")
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+
+    def close(self):
+        self.closed = True
+
+
+class _MaliciousArchiveSSHTransport(_FakeSSHTransport):
+    def download_file(self, remote_path, local_path):
+        with tarfile.open(local_path, "w:gz") as archive:
+            content = b"escape"
+            info = tarfile.TarInfo("../outside.txt")
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+
+
+class _FakeWinRMTransport:
+    def __init__(self):
+        self.scripts = []
+        self.uploaded = None
+        self.closed = False
+
+    def check(self):
+        return {"connected": True, "powershell": "5.1"}
+
+    def run_ps(self, script):
+        self.scripts.append(script)
+        return CommandResult(return_code=0, stdout="ok", stderr="")
+
+    def upload_tree(self, local_path, remote_path):
+        self.uploaded = (Path(local_path), remote_path)
+
+    def download_file(self, remote_path, local_path):
+        manifest = (
+            '[{"name":"Get-FirewallRules","success":true,"return_code":0},'
+            '{"name":"Get-GPOs","success":false,"return_code":2}]'
+        )
+        with zipfile.ZipFile(local_path, "w") as archive:
+            archive.writestr("collection_manifest.json", manifest)
+            archive.writestr("Protect-Update/Get-FirewallRules.txt", "rules")
+
+    def close(self):
+        self.closed = True
+
+
+class LinuxCollectorTests(unittest.TestCase):
+    def test_linux_collection_delivers_extracted_results(self):
+        target = TargetConfig(
+            target_type=TargetType.LINUX,
+            host="10.0.0.8",
+            port=22,
+            username="root",
+        )
+        transport = _FakeSSHTransport()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "main.py").write_text("print('payload')", encoding="utf-8")
+            output = root / "output"
+            output.mkdir()
+            collector = LinuxCollector(
+                target,
+                Credential(password="secret"),
+                transport=transport,
+                payload_root=payload,
+            )
+
+            results = collector.collect(output)
+
+            self.assertTrue(results[0].success)
+            self.assertTrue(
+                (output / "Linux_firewall_config" / "rules.txt").exists()
+            )
+            self.assertIsNotNone(transport.uploaded)
+            self.assertTrue(any("--all --output" in cmd for cmd in transport.commands))
+
+    def test_linux_collection_rejects_archive_path_traversal(self):
+        target = TargetConfig(
+            target_type=TargetType.LINUX,
+            host="10.0.0.8",
+            port=22,
+            username="root",
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "main.py").write_text("print('payload')", encoding="utf-8")
+            output = root / "output"
+            output.mkdir()
+            collector = LinuxCollector(
+                target,
+                Credential(password="secret"),
+                transport=_MaliciousArchiveSSHTransport(),
+                payload_root=payload,
+            )
+
+            with self.assertRaisesRegex(Exception, "不安全路径"):
+                collector.collect(output)
+            self.assertFalse((root / "outside.txt").exists())
+
+
+class WindowsCollectorTests(unittest.TestCase):
+    def test_windows_collection_uses_manifest_for_module_results(self):
+        target = TargetConfig(
+            target_type=TargetType.WINDOWS,
+            host="10.0.0.9",
+            port=5985,
+            username="Administrator",
+        )
+        transport = _FakeWinRMTransport()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "Invoke-AllCollectors.ps1").write_text(
+                "param([string]$OutputDirectory)",
+                encoding="utf-8",
+            )
+            output = root / "output"
+            output.mkdir()
+            collector = WindowsCollector(
+                target,
+                Credential(password="secret"),
+                transport=transport,
+                payload_root=payload,
+            )
+
+            results = collector.collect(output)
+
+            self.assertEqual([item.success for item in results], [True, False])
+            self.assertTrue(
+                (output / "Protect-Update" / "Get-FirewallRules.txt").exists()
+            )
+            self.assertTrue(
+                any("Invoke-AllCollectors.ps1" in script for script in transport.scripts)
+            )
+
+
+class SecurityCollectorTests(unittest.TestCase):
+    def test_security_collection_uses_selected_adapter_defaults(self):
+        target = TargetConfig(
+            target_type=TargetType.SECURITY,
+            host="10.0.0.10",
+            port=22,
+            username="root",
+            security_device="bt_waf",
+        )
+        transport = _FakeSSHTransport()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "remote_collect.py").write_text(
+                "print('security payload')",
+                encoding="utf-8",
+            )
+            output = root / "output"
+            output.mkdir()
+            collector = SecurityDeviceCollector(
+                target,
+                Credential(password="secret"),
+                adapter=default_registry().resolve("bt_waf"),
+                transport=transport,
+                payload_root=payload,
+            )
+
+            results = collector.collect(output)
+
+            self.assertTrue(results[0].success)
+            self.assertTrue(
+                any("remote_collect.py" in command for command in transport.commands)
+            )
+            self.assertTrue(
+                any(
+                    "/etc/nginx/waf/rule" in command
+                    or getattr(transport, "uploaded_file", None)
+                    for command in transport.commands
+                )
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

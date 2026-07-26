@@ -1,0 +1,15 @@
+# 密码、令牌和Authorization信息禁止写入本文件，运行时会隐藏输入。
+target:
+  type: security
+  host: 192.168.10.30
+  port: 22
+  username: collector
+  security_device: modsecurity
+  use_sudo: true
+
+security_devices:
+  modsecurity:
+    # 不配置paths时自动使用适配器内置路径。
+    paths:
+      - /etc/modsecurity
+      - /etc/nginx/modsecurity

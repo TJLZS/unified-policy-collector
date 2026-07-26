@@ -1,0 +1,7 @@
+paramiko>=3.4,<5
+pywinrm>=0.5,<1
+PyYAML>=6.0,<7
+pytest>=8.0,<10
+mypy>=1.10,<2
+types-paramiko>=3.4
+types-PyYAML>=6.0
