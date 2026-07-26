@@ -440,8 +440,36 @@ def run_all_strategies(
             completed_ids.discard(sid)
         cp_data["completed_strategies"] = list(completed_ids)
 
+    def write_manifest(failed_ids=None):
+        failed_set = set(failed_ids or [])
+        manifest = []
+        for item in reg:
+            strategy_id = item["id"]
+            success = strategy_id in completed_ids and strategy_id not in failed_set
+            if success:
+                message = "策略采集成功"
+            elif strategy_id in failed_set:
+                message = "策略采集失败，详情请查看对应日志"
+            else:
+                message = "策略未完成"
+            manifest.append(
+                {
+                    "name": strategy_id,
+                    "success": success,
+                    "return_code": 0 if success else 1,
+                    "message": message,
+                }
+            )
+        with open(
+            base_output / "collection_manifest.json",
+            "w",
+            encoding="utf-8",
+        ) as stream:
+            json.dump(manifest, stream, indent=2, ensure_ascii=False)
+
     remaining = [r for r in reg if r["id"] not in completed_ids]
     if not remaining:
+        write_manifest()
         logger.info("所有策略已采集完成")
         print("所有策略已采集完成")
         return True
@@ -498,6 +526,7 @@ def run_all_strategies(
             update_progress(progress_bar)
 
         close_progress_bar(progress_bar)
+        write_manifest(failed)
 
         if failed:
             logger.warning("采集完成，失败策略: %s", failed)
@@ -513,6 +542,7 @@ def run_all_strategies(
         cp_data["last_updated"] = datetime.now().isoformat()
         with open(test_checkpoint, "w", encoding="utf-8") as f:
             json.dump(cp_data, f, indent=2, ensure_ascii=False)
+        write_manifest(failed)
         logger.info("用户中断，断点已保存")
         print("\n用户中断，断点已保存")
         return False

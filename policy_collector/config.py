@@ -74,6 +74,7 @@ def target_from_mapping(
         ),
         winrm_https=bool(raw_target.get("winrm_https", False)),
         winrm_insecure=bool(raw_target.get("winrm_insecure", False)),
+        trust_new_host_key=bool(raw_target.get("trust_new_host_key", False)),
     )
 
     configured_paths: tuple[str, ...] = ()

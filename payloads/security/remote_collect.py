@@ -212,26 +212,51 @@ def main():
             copied, errors = collect_docker(config, output)
         else:
             copied, errors = collect_filesystem(config, output)
-        success = bool(copied)
-        return_code = 0 if success else 2
-        message = "已采集{}个路径".format(len(copied))
-        if errors:
-            message += "；" + "；".join(errors)
+        manifest = []
+        if copied:
+            manifest.append(
+                {
+                    "name": "{}:rules".format(config["key"]),
+                    "success": True,
+                    "return_code": 0,
+                    "message": "已采集{}个路径".format(len(copied)),
+                    "copied_paths": copied,
+                }
+            )
+        for index, error in enumerate(errors, 1):
+            manifest.append(
+                {
+                    "name": "{}:path_error_{}".format(config["key"], index),
+                    "success": False,
+                    "return_code": 2,
+                    "message": error,
+                    "copied_paths": [],
+                }
+            )
+        if not manifest:
+            manifest.append(
+                {
+                    "name": config["key"],
+                    "success": False,
+                    "return_code": 2,
+                    "message": "未采集到任何规则路径",
+                    "copied_paths": [],
+                }
+            )
+        return_code = 0 if copied and not errors else 2
+        message = "；".join(item["message"] for item in manifest)
     except Exception as exc:
-        copied = []
-        success = False
         return_code = 2
         message = str(exc)
-
-    manifest = [
-        {
-            "name": config["key"],
-            "success": success,
-            "return_code": return_code,
-            "message": message,
-            "copied_paths": copied,
-        }
-    ]
+        manifest = [
+            {
+                "name": config["key"],
+                "success": False,
+                "return_code": return_code,
+                "message": message,
+                "copied_paths": [],
+            }
+        ]
     (output / "collection_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",

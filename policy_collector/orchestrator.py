@@ -113,6 +113,17 @@ class CollectionOrchestrator:
             except Exception:
                 cleanup_succeeded = False
             logger.info("远端清理结果: %s", cleanup_succeeded)
+            if cleanup_succeeded is False:
+                modules.append(
+                    ModuleResult(
+                        name="remote_cleanup",
+                        success=False,
+                        message=(
+                            "远端临时目录清理失败；请根据日志人工核查本次UUID目录"
+                        ),
+                    )
+                )
+                status = _status_for(modules)
 
         report = CollectionReport(
             status=status,

@@ -40,6 +40,7 @@ class TargetConfig:
     container_name: str | None = None
     winrm_https: bool = False
     winrm_insecure: bool = False
+    trust_new_host_key: bool = False
 
     def __post_init__(self) -> None:
         if not self.host or any(ch.isspace() for ch in self.host):

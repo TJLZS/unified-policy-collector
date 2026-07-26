@@ -77,6 +77,7 @@ class LinuxCollector:
             Path(__file__).resolve().parents[1] / "payloads" / "linux"
         )
         self.remote_temp = f"/tmp/policy_collector_{uuid.uuid4().hex}"
+        self._remote_created = False
 
     def check(self) -> dict[str, object]:
         return self.transport.check()
@@ -86,6 +87,7 @@ class LinuxCollector:
         remote_payload = f"{self.remote_temp}/payload"
         remote_output = f"{self.remote_temp}/result"
         remote_archive = f"{self.remote_temp}/result.tar.gz"
+        self._remote_created = True
         mkdir = self.transport.run(
             f"mkdir -p {shlex.quote(remote_payload)} {shlex.quote(remote_output)}"
         )
@@ -111,6 +113,21 @@ class LinuxCollector:
         local_archive = output_dir / "linux-results.tar.gz"
         self.transport.download_file(remote_archive, local_archive)
         _extract_tar_safely(local_archive, output_dir)
+        manifest_path = output_dir / "collection_manifest.json"
+        if manifest_path.exists():
+            try:
+                items = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+                return [
+                    ModuleResult(
+                        name=str(item["name"]),
+                        success=bool(item["success"]),
+                        return_code=item.get("return_code"),
+                        message=str(item.get("message", "")),
+                    )
+                    for item in items
+                ]
+            except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                raise CollectorError(f"Linux采集清单无效: {exc}") from exc
         return [
             ModuleResult(
                 name="linux_all",
@@ -123,6 +140,9 @@ class LinuxCollector:
     def cleanup(self) -> bool:
         if not _POSIX_TEMP.fullmatch(self.remote_temp):
             raise CollectorError("拒绝清理不安全的Linux临时目录")
+        if not self._remote_created:
+            self.transport.close()
+            return True
         succeeded = True
         try:
             result = self.transport.run(
@@ -132,6 +152,8 @@ class LinuxCollector:
                 timeout=60,
             )
             succeeded = result.return_code == 0
+            if succeeded:
+                self._remote_created = False
         except Exception:
             succeeded = False
         finally:
@@ -157,6 +179,7 @@ class WindowsCollector:
         self.remote_temp = (
             "C:\\Windows\\Temp\\policy_collector_" + uuid.uuid4().hex
         )
+        self._remote_created = False
 
     def check(self) -> dict[str, object]:
         return self.transport.check()
@@ -166,6 +189,7 @@ class WindowsCollector:
         payload = self.remote_temp + "\\payload"
         result_dir = self.remote_temp + "\\result"
         archive = self.remote_temp + "\\result.zip"
+        self._remote_created = True
         create = self.transport.run_ps(
             "$ErrorActionPreference='Stop';"
             f"New-Item -ItemType Directory -Path '{payload}','{result_dir}' "
@@ -220,6 +244,9 @@ class WindowsCollector:
     def cleanup(self) -> bool:
         if not _WINDOWS_TEMP.fullmatch(self.remote_temp):
             raise CollectorError("拒绝清理不安全的Windows临时目录")
+        if not self._remote_created:
+            self.transport.close()
+            return True
         succeeded = True
         try:
             result = self.transport.run_ps(
@@ -228,6 +255,8 @@ class WindowsCollector:
                 "-Recurse -Force}}"
             )
             succeeded = result.return_code == 0
+            if succeeded:
+                self._remote_created = False
         except Exception:
             succeeded = False
         finally:
@@ -253,6 +282,7 @@ class SecurityDeviceCollector:
             Path(__file__).resolve().parents[1] / "payloads" / "security"
         )
         self.remote_temp = f"/tmp/policy_collector_{uuid.uuid4().hex}"
+        self._remote_created = False
 
     def check(self) -> dict[str, object]:
         details = dict(self.transport.check())
@@ -277,6 +307,7 @@ class SecurityDeviceCollector:
         remote_output = f"{self.remote_temp}/result"
         remote_config = f"{self.remote_temp}/adapter.json"
         remote_archive = f"{self.remote_temp}/result.tar.gz"
+        self._remote_created = True
         mkdir = self.transport.run(
             f"mkdir -p {shlex.quote(remote_payload)} {shlex.quote(remote_output)}"
         )
@@ -354,6 +385,9 @@ class SecurityDeviceCollector:
     def cleanup(self) -> bool:
         if not _POSIX_TEMP.fullmatch(self.remote_temp):
             raise CollectorError("拒绝清理不安全的安全设备临时目录")
+        if not self._remote_created:
+            self.transport.close()
+            return True
         succeeded = True
         try:
             result = self.transport.run(
@@ -363,6 +397,8 @@ class SecurityDeviceCollector:
                 timeout=60,
             )
             succeeded = result.return_code == 0
+            if succeeded:
+                self._remote_created = False
         except Exception:
             succeeded = False
         finally:

@@ -1,4 +1,7 @@
 import io
+import json
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -54,6 +57,26 @@ class _MaliciousArchiveSSHTransport(_FakeSSHTransport):
             archive.addfile(info, io.BytesIO(content))
 
 
+class _PartialLinuxArchiveSSHTransport(_FakeSSHTransport):
+    def run(self, command, *, sudo=False, sudo_password=None, timeout=300):
+        self.commands.append(command)
+        if "main.py" in command:
+            return CommandResult(return_code=1, stdout="partial", stderr="")
+        return CommandResult(return_code=0, stdout="ok", stderr="")
+
+    def download_file(self, remote_path, local_path):
+        manifest = json.dumps(
+            [
+                {"name": "firewall", "success": True, "return_code": 0},
+                {"name": "audit", "success": False, "return_code": 1},
+            ]
+        ).encode("utf-8")
+        with tarfile.open(local_path, "w:gz") as archive:
+            info = tarfile.TarInfo("collection_manifest.json")
+            info.size = len(manifest)
+            archive.addfile(info, io.BytesIO(manifest))
+
+
 class _FakeWinRMTransport:
     def __init__(self):
         self.scripts = []
@@ -84,6 +107,24 @@ class _FakeWinRMTransport:
 
 
 class LinuxCollectorTests(unittest.TestCase):
+    def test_cleanup_before_collection_only_closes_transport(self):
+        target = TargetConfig(
+            target_type=TargetType.LINUX,
+            host="10.0.0.8",
+            port=22,
+            username="root",
+        )
+        transport = _FakeSSHTransport()
+        collector = LinuxCollector(
+            target,
+            Credential(password="secret"),
+            transport=transport,
+        )
+
+        self.assertTrue(collector.cleanup())
+        self.assertTrue(transport.closed)
+        self.assertFalse(any("rm -rf" in command for command in transport.commands))
+
     def test_linux_collection_delivers_extracted_results(self):
         target = TargetConfig(
             target_type=TargetType.LINUX,
@@ -141,6 +182,31 @@ class LinuxCollectorTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "不安全路径"):
                 collector.collect(output)
             self.assertFalse((root / "outside.txt").exists())
+
+    def test_linux_collection_uses_strategy_manifest_for_partial_results(self):
+        target = TargetConfig(
+            target_type=TargetType.LINUX,
+            host="10.0.0.8",
+            port=22,
+            username="root",
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "main.py").write_text("print('payload')", encoding="utf-8")
+            collector = LinuxCollector(
+                target,
+                Credential(password="secret"),
+                transport=_PartialLinuxArchiveSSHTransport(),
+                payload_root=payload,
+            )
+
+            results = collector.collect(root / "output")
+
+            self.assertEqual([item.success for item in results], [True, False])
+            self.assertEqual([item.name for item in results], ["firewall", "audit"])
 
 
 class WindowsCollectorTests(unittest.TestCase):
@@ -222,6 +288,54 @@ class SecurityCollectorTests(unittest.TestCase):
                     or getattr(transport, "uploaded_file", None)
                     for command in transport.commands
                 )
+            )
+
+    def test_security_payload_reports_partial_when_one_path_is_missing(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            existing = root / "existing.rules"
+            existing.write_text("allow", encoding="utf-8")
+            config = root / "config.json"
+            output = root / "output"
+            config.write_text(
+                json.dumps(
+                    {
+                        "key": "suricata",
+                        "paths": [str(existing), str(root / "missing.rules")],
+                        "status_commands": [],
+                        "docker": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(payload),
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            manifest = json.loads(
+                (output / "collection_manifest.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(completed.returncode, 2)
+            self.assertEqual(
+                [item["success"] for item in manifest],
+                [True, False],
             )
 
 

@@ -3,9 +3,10 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from policy_collector.models import Credential, TargetConfig, TargetType
-from policy_collector.transports import WinRMTransport
+from policy_collector.transports import CommandResult, SSHTransport, WinRMTransport
 
 
 class _Response:
@@ -65,6 +66,98 @@ class WinRMTransportTests(unittest.TestCase):
             transport.download_file(r"C:\Temp\source.bin", downloaded)
 
             self.assertEqual(downloaded.read_bytes(), data)
+
+
+class _CapabilitySSHTransport(SSHTransport):
+    def __init__(self, target, credential):
+        super().__init__(target, credential)
+        self.calls = []
+
+    def connect(self):
+        return None
+
+    def run(
+        self,
+        command,
+        *,
+        sudo=False,
+        sudo_password=None,
+        timeout=300,
+    ):
+        self.calls.append((command, sudo, sudo_password, timeout))
+        return CommandResult(0, "ok", "")
+
+
+class _PolicyRecordingClient:
+    def __init__(self):
+        self.policy = None
+
+    def load_system_host_keys(self):
+        return None
+
+    def set_missing_host_key_policy(self, policy):
+        self.policy = policy
+
+    def connect(self, **kwargs):
+        return None
+
+    def close(self):
+        return None
+
+
+class SSHTransportTests(unittest.TestCase):
+    @patch("policy_collector.transports._check_tcp")
+    def test_check_validates_python_tar_and_requested_sudo(self, _tcp_check):
+        target = TargetConfig(
+            TargetType.LINUX,
+            "10.0.0.8",
+            22,
+            "collector",
+            use_sudo=True,
+        )
+        transport = _CapabilitySSHTransport(
+            target,
+            Credential(password="login", sudo_password="sudo-secret"),
+        )
+
+        details = transport.check()
+
+        self.assertIn("command -v python3", transport.calls[0][0])
+        self.assertIn("command -v tar", transport.calls[0][0])
+        self.assertTrue(transport.calls[1][1])
+        self.assertEqual(transport.calls[1][2], "sudo-secret")
+        self.assertEqual(details["sudo"], "available")
+
+    def test_unknown_ssh_host_keys_are_rejected_unless_explicitly_allowed(self):
+        strict_target = TargetConfig(
+            TargetType.LINUX,
+            "10.0.0.8",
+            22,
+            "collector",
+        )
+        strict_client = _PolicyRecordingClient()
+        SSHTransport(
+            strict_target,
+            Credential(password="secret"),
+            client_factory=lambda: strict_client,
+        ).connect()
+
+        trusted_target = TargetConfig(
+            TargetType.LINUX,
+            "10.0.0.8",
+            22,
+            "collector",
+            trust_new_host_key=True,
+        )
+        trusted_client = _PolicyRecordingClient()
+        SSHTransport(
+            trusted_target,
+            Credential(password="secret"),
+            client_factory=lambda: trusted_client,
+        ).connect()
+
+        self.assertEqual(type(strict_client.policy).__name__, "RejectPolicy")
+        self.assertEqual(type(trusted_client.policy).__name__, "AutoAddPolicy")
 
 
 if __name__ == "__main__":

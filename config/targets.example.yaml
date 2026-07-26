@@ -6,6 +6,8 @@ target:
   username: collector
   security_device: modsecurity
   use_sudo: true
+  # 默认false并校验~/.ssh/known_hosts；仅在隔离靶场确认风险后设为true。
+  trust_new_host_key: false
 
 security_devices:
   modsecurity:

@@ -34,6 +34,14 @@ class _FailingCollector(_FakeCollector):
         raise RuntimeError("authentication failed for DoNotPersistThis")
 
 
+class _CleanupFailingCollector(_FakeCollector):
+    def collect(self, output_dir: Path):
+        return [ModuleResult(name="firewall", success=True, return_code=0)]
+
+    def cleanup(self):
+        return False
+
+
 class WorkflowTests(unittest.TestCase):
     def test_partial_collection_writes_secret_free_summary_and_cleans_up(self):
         target = TargetConfig(
@@ -93,6 +101,33 @@ class WorkflowTests(unittest.TestCase):
             )
             self.assertNotIn("DoNotPersistThis", summary_text)
             self.assertIn("***", summary_text)
+
+    def test_cleanup_failure_downgrades_success_to_partial(self):
+        target = TargetConfig(
+            target_type=TargetType.LINUX,
+            host="10.10.10.8",
+            port=22,
+            username="root",
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            orchestrator = CollectionOrchestrator(
+                collector_factory=lambda _target, _credential: (
+                    _CleanupFailingCollector()
+                )
+            )
+            report = orchestrator.collect(
+                target,
+                Credential(password="secret"),
+                output_root=Path(temp),
+            )
+
+            self.assertEqual(report.status, CollectionStatus.PARTIAL)
+            self.assertFalse(report.cleanup_succeeded)
+            self.assertIn(
+                "remote_cleanup",
+                [item.name for item in report.modules if not item.success],
+            )
 
 
 if __name__ == "__main__":

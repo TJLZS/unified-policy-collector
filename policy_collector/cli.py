@@ -110,6 +110,12 @@ def _build_parser() -> argparse.ArgumentParser:
             default=None,
             help="显式允许HTTPS WinRM忽略证书校验",
         )
+        subparser.add_argument(
+            "--trust-new-host-key",
+            action="store_true",
+            default=None,
+            help="显式信任首次连接的SSH主机密钥（仅建议隔离靶场使用）",
+        )
         subparser.add_argument("--config", type=Path, help="非敏感YAML配置")
         subparser.add_argument(
             "--output-root",
@@ -199,6 +205,11 @@ def _resolve_target(
     container_name = args.container_name or (
         base_target.container_name if base_target else None
     )
+    trust_new_host_key = (
+        args.trust_new_host_key
+        if args.trust_new_host_key is not None
+        else (base_target.trust_new_host_key if base_target else False)
+    )
     target = TargetConfig(
         target_type=target_type,
         host=host,
@@ -210,6 +221,7 @@ def _resolve_target(
         container_name=container_name,
         winrm_https=bool(https),
         winrm_insecure=bool(insecure),
+        trust_new_host_key=bool(trust_new_host_key),
     )
     return target, configured_paths
 

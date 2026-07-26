@@ -55,7 +55,10 @@ class SSHTransport:
             ) from exc
         client = self._client_factory() if self._client_factory else paramiko.SSHClient()
         client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        if self.target.trust_new_host_key:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        else:
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
         try:
             client.connect(
                 hostname=self.target.host,
@@ -76,14 +79,31 @@ class SSHTransport:
     def check(self) -> dict[str, object]:
         _check_tcp(self.target.host, self.target.port, self.connect_timeout)
         self.connect()
-        result = self.run("python3 --version", timeout=20)
+        result = self.run(
+            "command -v python3 >/dev/null && python3 --version && "
+            "command -v tar >/dev/null && tar --version | head -n 1",
+            timeout=20,
+        )
         if result.return_code != 0:
-            raise TransportError("目标机缺少可用的python3")
-        return {
+            raise TransportError("目标机缺少可用的python3或tar")
+        details: dict[str, object] = {
             "connected": True,
             "transport": "ssh",
-            "python3": (result.stdout or result.stderr).strip(),
+            "capabilities": (result.stdout or result.stderr).strip(),
         }
+        if self.target.use_sudo:
+            sudo_result = self.run(
+                "true",
+                sudo=True,
+                sudo_password=self.credential.sudo_password,
+                timeout=20,
+            )
+            if sudo_result.return_code != 0:
+                raise TransportError(
+                    "已连接SSH，但当前账号无法使用配置的sudo凭据"
+                )
+            details["sudo"] = "available"
+        return details
 
     def run(
         self,

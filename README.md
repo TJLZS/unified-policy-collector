@@ -34,6 +34,10 @@ python -m pip install -r requirements.txt
 - 需要读取系统策略时，账号应具备相应权限；
 - 使用 `--sudo` 时，账号应允许 sudo。
 
+SSH 默认校验采集机的 `~/.ssh/known_hosts`，建议先人工执行一次
+`ssh 用户名@目标IP` 并核对主机指纹。只有在隔离靶场且已通过其他方式确认目标身份时，
+才可显式增加 `--trust-new-host-key`。
+
 目标 Windows：
 
 - Windows PowerShell 5.1 或更高版本；
@@ -129,6 +133,9 @@ python main.py check \
   --username collector
 ```
 
+Linux及安全设备的检查项包括 `python3`、`tar`，启用 `--sudo` 时还会验证
+本次输入的 sudo 凭据。Windows会检查 PowerShell 和 `Compress-Archive`。
+
 ### YAML 高级配置
 
 复制 `config/targets.example.yaml` 后修改非敏感字段：
@@ -204,6 +211,8 @@ outputs/
 - `failed`：连接、传输或全部采集失败，进程退出码 1。
 
 远端临时目录使用随机 UUID，并只在确认目录满足本项目安全格式时删除。
+如果已有采集项成功但远端清理失败，清理会作为独立失败项记录，最终状态为
+`partial`，便于人工核查残留目录。
 
 ## 6. 测试
 
