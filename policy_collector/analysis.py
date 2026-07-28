@@ -974,21 +974,18 @@ class ResultAnalysisService:
             try:
                 resolved = path.resolve()
                 resolved.relative_to(root)
-            except (OSError, ValueError):
-                continue
-            if (
-                not resolved.is_file()
-                or resolved.name == REPORT_NAME
-                or resolved.suffix.lower() not in {".json", ".txt", ".log"}
-            ):
-                continue
-            stat = resolved.stat()
-            content_hash = hashlib.sha256()
-            try:
+                if (
+                    not resolved.is_file()
+                    or resolved.name == REPORT_NAME
+                    or resolved.suffix.lower() not in {".json", ".txt", ".log"}
+                ):
+                    continue
+                stat = resolved.stat()
+                content_hash = hashlib.sha256()
                 with resolved.open("rb") as stream:
                     for chunk in iter(lambda: stream.read(64 * 1024), b""):
                         content_hash.update(chunk)
-            except OSError:
+            except (OSError, ValueError):
                 continue
             records.append(
                 f"{resolved.relative_to(root).as_posix()}:"

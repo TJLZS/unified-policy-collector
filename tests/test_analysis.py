@@ -228,6 +228,48 @@ class ResultAnalysisServiceTests(unittest.TestCase):
                 "partial",
             )
 
+    def test_history_skips_evidence_file_without_read_permission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp)
+            modules = [
+                {
+                    "name": "custom:rules",
+                    "success": True,
+                    "return_code": 0,
+                    "message": "",
+                }
+            ]
+            run_dir, _ = self._write_run(
+                output_root,
+                target_type="security",
+                modules=modules,
+                manifest=modules,
+                status="success",
+                security_device="custom",
+            )
+            blocked_file = (
+                run_dir
+                / "data"
+                / "rules"
+                / "1_plugins"
+                / "file_leak_detection.w"
+            )
+            blocked_file.parent.mkdir(parents=True)
+            blocked_file.write_text("rule", encoding="utf-8")
+            original_is_file = Path.is_file
+
+            def deny_blocked_file(path):
+                if path.name == blocked_file.name:
+                    raise PermissionError("规则文件无读取权限")
+                return original_is_file(path)
+
+            service = ResultAnalysisService(output_root)
+            with mock.patch.object(Path, "is_file", deny_blocked_file):
+                page = service.query_runs(page=1, page_size=12)
+
+            self.assertEqual(page["total"], 1)
+            self.assertEqual(page["items"][0]["assessment_status"], "success")
+
     def test_historical_windows_run_marks_absent_laps_not_applicable(self):
         with tempfile.TemporaryDirectory() as temp:
             output_root = Path(temp)
