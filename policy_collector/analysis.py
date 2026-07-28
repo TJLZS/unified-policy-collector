@@ -591,8 +591,13 @@ class ResultAnalysisService:
                 encoding="utf-8",
             )
             temporary_report.replace(report_path)
+        except OSError:
+            pass
         finally:
-            temporary_report.unlink(missing_ok=True)
+            try:
+                temporary_report.unlink(missing_ok=True)
+            except OSError:
+                pass
         return report
 
     def _analyze_item(

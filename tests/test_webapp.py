@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -346,6 +347,32 @@ class WebAppTests(unittest.TestCase):
             all(len(item["run_id"]) == 64 for item in history["items"])
         )
 
+    def test_history_api_still_loads_when_old_run_directory_is_read_only(self):
+        self._write_historical_run()
+        original_write_text = Path.write_text
+
+        def deny_analysis_report_write(path, *args, **kwargs):
+            if path.name.startswith(".analysis_report.json."):
+                raise PermissionError("只读历史结果目录")
+            return original_write_text(path, *args, **kwargs)
+
+        tolerant_client = TestClient(
+            self.client.app,
+            raise_server_exceptions=False,
+        )
+        try:
+            with mock.patch.object(
+                Path,
+                "write_text",
+                deny_analysis_report_write,
+            ):
+                response = tolerant_client.get("/api/history")
+        finally:
+            tolerant_client.close()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["total"], 1)
+
     def test_history_api_filters_by_type_ip_and_effective_status(self):
         self._write_history_runs(6)
 
@@ -428,6 +455,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("history-target-ip", history.text)
         self.assertIn("history-status", history.text)
         self.assertIn("history.js", history.text)
+        self.assertIn("返回采集首页", history.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("/api/history", script.text)
         self.assertIn("/runs/", script.text)
