@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
@@ -286,6 +286,23 @@ class JobService:
     def recent_runs(self, limit: int = 20) -> list[dict[str, object]]:
         return self.analysis.list_runs(limit=limit)
 
+    def history_runs(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        target_type: str | None = None,
+        target_ip: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        return self.analysis.query_runs(
+            page=page,
+            page_size=page_size,
+            target_type=target_type,
+            target_ip=target_ip,
+            status=status,
+        )
+
     def analyze_run(self, run_id: str) -> dict[str, object]:
         if RUN_ID_PATTERN.fullmatch(run_id) is None:
             raise RunNotFoundError(run_id)
@@ -334,6 +351,10 @@ def create_app(service: JobService | None = None) -> FastAPI:
     @app.get("/runs/{run_id}")
     def analysis_page(run_id: str) -> FileResponse:
         return FileResponse(WEB_ROOT / "analysis.html")
+
+    @app.get("/history")
+    def history_page() -> FileResponse:
+        return FileResponse(WEB_ROOT / "history.html")
 
     @app.get("/api/meta")
     def meta() -> dict[str, object]:
@@ -385,6 +406,22 @@ def create_app(service: JobService | None = None) -> FastAPI:
     @app.get("/api/runs")
     def recent_runs() -> list[dict[str, object]]:
         return active_service.recent_runs()
+
+    @app.get("/api/history")
+    def history_runs(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=12, ge=1, le=100),
+        target_type: Literal["linux", "windows", "security"] | None = None,
+        target_ip: str | None = Query(default=None, max_length=255),
+        status: Literal["success", "partial", "failed"] | None = None,
+    ) -> dict[str, object]:
+        return active_service.history_runs(
+            page=page,
+            page_size=page_size,
+            target_type=target_type,
+            target_ip=target_ip,
+            status=status,
+        )
 
     @app.get("/api/runs/{run_id}/report")
     def download_report(run_id: str) -> JSONResponse:

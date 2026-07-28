@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,9 @@ from .security import redact_text
 
 ANALYZER_VERSION = 2
 REPORT_NAME = "analysis_report.json"
+HISTORY_INDEX_NAME = ".history_index.json"
+HISTORY_INDEX_VERSION = 1
+HISTORY_SAMPLE_BYTES = 4096
 MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_EVIDENCE_CHARS = 1200
 
@@ -157,26 +161,269 @@ class ResultAnalysisService:
 
     def __init__(self, output_root: Path) -> None:
         self.output_root = Path(output_root)
+        self._history_index_lock = threading.RLock()
 
     def list_runs(self, limit: int = 20) -> list[dict[str, object]]:
-        runs: list[dict[str, object]] = []
-        for run_id, run_dir, summary in self._discover_runs()[:limit]:
-            analysis = self._analyze_path(run_id, run_dir, summary)
-            runs.append(
-                {
-                    "run_id": run_id,
-                    "target_type": summary.get("target_type"),
-                    "target_ip": summary.get("target_ip"),
-                    "started_at": summary.get("started_at"),
-                    "collection_status": summary.get("status", "failed"),
-                    "assessment_status": analysis["assessment_status"],
-                    "counts": analysis["counts"],
-                    "successful_modules": summary.get("successful_modules", []),
-                    "failed_modules": summary.get("failed_modules", []),
-                    "run_dir": str(run_dir),
-                }
+        return [
+            self._run_list_item(run_id, run_dir, summary)
+            for run_id, run_dir, summary in self._discover_runs()[:limit]
+        ]
+
+    def query_runs(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        target_type: str | None = None,
+        target_ip: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        with self._history_index_lock:
+            normalized_ip = (target_ip or "").strip().casefold()
+            discovered = self._discover_runs()
+            candidates: list[tuple[str, Path, dict[str, Any]]] = []
+            for run_id, run_dir, summary in discovered:
+                if target_type and summary.get("target_type") != target_type:
+                    continue
+                if normalized_ip and normalized_ip not in str(
+                    summary.get("target_ip", "")
+                ).casefold():
+                    continue
+                candidates.append((run_id, run_dir, summary))
+
+            index_entries = self._load_history_index()
+            discovered_ids = {run_id for run_id, _, _ in discovered}
+            stale_ids = set(index_entries) - discovered_ids
+            for stale_id in stale_ids:
+                del index_entries[stale_id]
+            index_changed = bool(stale_ids)
+
+            if status:
+                records: list[dict[str, object]] = []
+                for run_id, run_dir, summary in candidates:
+                    item, changed = self._indexed_history_item(
+                        run_id,
+                        run_dir,
+                        summary,
+                        index_entries,
+                    )
+                    index_changed = index_changed or changed
+                    if item["assessment_status"] == status:
+                        records.append(item)
+                total = len(records)
+                pages = (total + page_size - 1) // page_size
+                normalized_page = min(page, pages) if pages else 1
+                start = (normalized_page - 1) * page_size
+                items = records[start : start + page_size]
+            else:
+                total = len(candidates)
+                pages = (total + page_size - 1) // page_size
+                normalized_page = min(page, pages) if pages else 1
+                start = (normalized_page - 1) * page_size
+                items = []
+                for run_id, run_dir, summary in candidates[
+                    start : start + page_size
+                ]:
+                    item, changed = self._indexed_history_item(
+                        run_id,
+                        run_dir,
+                        summary,
+                        index_entries,
+                    )
+                    index_changed = index_changed or changed
+                    items.append(item)
+            if index_changed:
+                self._save_history_index(index_entries)
+            return {
+                "items": items,
+                "page": normalized_page,
+                "page_size": page_size,
+                "total": total,
+                "pages": pages,
+            }
+
+    def _indexed_history_item(
+        self,
+        run_id: str,
+        run_dir: Path,
+        summary: dict[str, Any],
+        index_entries: dict[str, dict[str, object]],
+    ) -> tuple[dict[str, object], bool]:
+        marker = self._history_source_marker(run_dir)
+        cached = index_entries.get(run_id)
+        if cached and cached.get("source_marker") == marker:
+            item = cached.get("item")
+            if isinstance(item, dict) and self._valid_history_index_item(
+                item,
+                run_id,
+            ):
+                sanitized_item = dict(item)
+                sanitized_item.pop("run_dir", None)
+                return sanitized_item, False
+
+        item = self._history_list_item(run_id, run_dir, summary)
+        index_entries[run_id] = {
+            "source_marker": self._history_source_marker(run_dir),
+            "item": item,
+        }
+        return item, True
+
+    def _history_source_marker(self, run_dir: Path) -> str:
+        root = run_dir.resolve()
+        records: list[str] = []
+        for path in sorted(run_dir.rglob("*")):
+            try:
+                resolved = path.resolve()
+                resolved.relative_to(root)
+                if (
+                    not resolved.is_file()
+                    or resolved.name == REPORT_NAME
+                    or resolved.suffix.lower() not in {".json", ".txt", ".log"}
+                ):
+                    continue
+                stat = resolved.stat()
+            except (OSError, ValueError):
+                continue
+            records.append(
+                f"{resolved.relative_to(root).as_posix()}:"
+                f"{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}:"
+                f"{self._bounded_file_fingerprint(resolved, stat.st_size)}"
             )
-        return runs
+        return hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest()
+
+    def _bounded_file_fingerprint(self, path: Path, size: int) -> str:
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as stream:
+                offsets = {0}
+                if size > HISTORY_SAMPLE_BYTES:
+                    offsets.add(max(0, size // 2 - HISTORY_SAMPLE_BYTES // 2))
+                    offsets.add(max(0, size - HISTORY_SAMPLE_BYTES))
+                for offset in sorted(offsets):
+                    stream.seek(offset)
+                    digest.update(str(offset).encode("ascii"))
+                    digest.update(stream.read(HISTORY_SAMPLE_BYTES))
+        except OSError:
+            return "unreadable"
+        return digest.hexdigest()
+
+    def _valid_history_index_item(
+        self,
+        item: object,
+        run_id: str,
+    ) -> bool:
+        if not isinstance(item, dict) or item.get("run_id") != run_id:
+            return False
+        if item.get("assessment_status") not in {
+            "success",
+            "partial",
+            "failed",
+        }:
+            return False
+        if item.get("collection_status") not in {
+            "success",
+            "partial",
+            "failed",
+        }:
+            return False
+        counts = item.get("counts")
+        if not isinstance(counts, dict):
+            return False
+        if any(
+            not isinstance(counts.get(status), int)
+            for status in ("success", "failed", "not_applicable", "skipped")
+        ):
+            return False
+        return all(
+            isinstance(item.get(field), list)
+            for field in ("successful_modules", "failed_modules")
+        )
+
+    def _load_history_index(self) -> dict[str, dict[str, object]]:
+        index_path = self.output_root / HISTORY_INDEX_NAME
+        try:
+            document = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if (
+            not isinstance(document, dict)
+            or document.get("schema_version") != HISTORY_INDEX_VERSION
+            or document.get("analyzer_version") != ANALYZER_VERSION
+        ):
+            return {}
+        entries = document.get("entries")
+        if not isinstance(entries, dict):
+            return {}
+        return {
+            str(run_id): entry
+            for run_id, entry in entries.items()
+            if isinstance(entry, dict)
+        }
+
+    def _save_history_index(
+        self,
+        entries: dict[str, dict[str, object]],
+    ) -> None:
+        temporary_path: Path | None = None
+        try:
+            self.output_root.mkdir(parents=True, exist_ok=True)
+            index_path = self.output_root / HISTORY_INDEX_NAME
+            temporary_path = index_path.with_name(
+                f".{HISTORY_INDEX_NAME.lstrip('.')}.{uuid.uuid4().hex}.tmp"
+            )
+            temporary_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": HISTORY_INDEX_VERSION,
+                        "analyzer_version": ANALYZER_VERSION,
+                        "entries": entries,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            temporary_path.replace(index_path)
+        except OSError:
+            return
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _history_list_item(
+        self,
+        run_id: str,
+        run_dir: Path,
+        summary: dict[str, Any],
+    ) -> dict[str, object]:
+        item = self._run_list_item(run_id, run_dir, summary)
+        item.pop("run_dir", None)
+        return item
+
+    def _run_list_item(
+        self,
+        run_id: str,
+        run_dir: Path,
+        summary: dict[str, Any],
+    ) -> dict[str, object]:
+        analysis = self._analyze_path(run_id, run_dir, summary)
+        return {
+            "run_id": run_id,
+            "target_type": summary.get("target_type"),
+            "target_ip": summary.get("target_ip"),
+            "security_device": summary.get("security_device"),
+            "custom_device_name": summary.get("custom_device_name"),
+            "started_at": summary.get("started_at"),
+            "collection_status": summary.get("status", "failed"),
+            "assessment_status": analysis["assessment_status"],
+            "counts": analysis["counts"],
+            "successful_modules": summary.get("successful_modules", []),
+            "failed_modules": summary.get("failed_modules", []),
+            "run_dir": str(run_dir),
+        }
 
     def analyze(self, run_id: str) -> dict[str, object]:
         for candidate_id, run_dir, summary in self._discover_runs():

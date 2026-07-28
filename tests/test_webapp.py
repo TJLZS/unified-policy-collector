@@ -93,6 +93,44 @@ class WebAppTests(unittest.TestCase):
         )
         return run_dir
 
+    def _write_history_runs(self, count):
+        for index in range(count):
+            target_type = "linux" if index % 2 == 0 else "windows"
+            succeeded = target_type == "linux"
+            module_name = "Firewall" if succeeded else "Get-FirewallRules"
+            run_dir = (
+                Path(self.temp.name)
+                / target_type
+                / f"10.0.0.{index + 1}"
+                / f"20260728_12{index:04d}_000000"
+            )
+            run_dir.mkdir(parents=True)
+            summary = {
+                "target_type": target_type,
+                "target_ip": f"10.0.0.{index + 1}",
+                "port": 22 if target_type == "linux" else 5985,
+                "username": "collector",
+                "started_at": f"2026-07-28T12:{index:02d}:00+00:00",
+                "finished_at": f"2026-07-28T12:{index:02d}:10+00:00",
+                "status": "success" if succeeded else "failed",
+                "successful_modules": [module_name] if succeeded else [],
+                "failed_modules": [] if succeeded else [module_name],
+                "modules": [
+                    {
+                        "name": module_name,
+                        "success": succeeded,
+                        "return_code": 0 if succeeded else 1,
+                        "message": "" if succeeded else "Access is denied",
+                    }
+                ],
+                "error": None,
+                "cleanup_succeeded": True,
+            }
+            (run_dir / "collection_summary.json").write_text(
+                json.dumps(summary),
+                encoding="utf-8",
+            )
+
     def test_check_job_never_exposes_or_persists_password(self):
         secret = "NeverPersistThis!"
         response = self.client.post(
@@ -292,6 +330,56 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(run["counts"]["success"], 1)
         self.assertEqual(run["counts"]["not_applicable"], 1)
 
+    def test_history_api_paginates_all_collection_records(self):
+        self._write_history_runs(13)
+
+        response = self.client.get("/api/history?page=2&page_size=5")
+
+        self.assertEqual(response.status_code, 200)
+        history = response.json()
+        self.assertEqual(history["page"], 2)
+        self.assertEqual(history["page_size"], 5)
+        self.assertEqual(history["total"], 13)
+        self.assertEqual(history["pages"], 3)
+        self.assertEqual(len(history["items"]), 5)
+        self.assertTrue(
+            all(len(item["run_id"]) == 64 for item in history["items"])
+        )
+
+    def test_history_api_filters_by_type_ip_and_effective_status(self):
+        self._write_history_runs(6)
+
+        response = self.client.get(
+            "/api/history",
+            params={
+                "target_type": "windows",
+                "target_ip": "10.0.0.4",
+                "status": "failed",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        history = response.json()
+        self.assertEqual(history["total"], 1)
+        self.assertEqual(len(history["items"]), 1)
+        self.assertEqual(history["items"][0]["target_type"], "windows")
+        self.assertEqual(history["items"][0]["target_ip"], "10.0.0.4")
+        self.assertEqual(history["items"][0]["assessment_status"], "failed")
+
+    def test_history_api_clamps_page_and_hides_server_paths(self):
+        self._write_history_runs(13)
+
+        response = self.client.get("/api/history?page=99&page_size=5")
+
+        self.assertEqual(response.status_code, 200)
+        history = response.json()
+        self.assertEqual(history["page"], 3)
+        self.assertEqual(history["pages"], 3)
+        self.assertEqual(len(history["items"]), 3)
+        self.assertTrue(
+            all("run_dir" not in item for item in history["items"])
+        )
+
     def test_run_detail_and_report_download_use_run_id_not_paths(self):
         self._write_historical_run()
         run_id = self.client.get("/api/runs").json()[0]["run_id"]
@@ -325,6 +413,24 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("采集结果分析", response.text)
         self.assertIn("analysis.js", response.text)
+
+    def test_history_page_and_home_entry_are_served(self):
+        home = self.client.get("/")
+        history = self.client.get("/history")
+        script = self.client.get("/assets/history.js")
+
+        self.assertEqual(home.status_code, 200)
+        self.assertIn('href="/history"', home.text)
+        self.assertIn("查看全部历史", home.text)
+        self.assertEqual(history.status_code, 200)
+        self.assertIn("历史采集结果", history.text)
+        self.assertIn("history-target-type", history.text)
+        self.assertIn("history-target-ip", history.text)
+        self.assertIn("history-status", history.text)
+        self.assertIn("history.js", history.text)
+        self.assertEqual(script.status_code, 200)
+        self.assertIn("/api/history", script.text)
+        self.assertIn("/runs/", script.text)
 
     def test_web_assets_render_dual_status_filters_and_escaped_evidence(self):
         home_script = self.client.get("/assets/app.js")

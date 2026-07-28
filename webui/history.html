@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>历史采集结果 · 统一安全策略采集</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body class="analysis-body">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">P</span>
+        <span>
+          <strong>POLICY COLLECTOR</strong>
+          <small>历史采集结果</small>
+        </span>
+      </a>
+      <a class="back-link" href="/">← 返回采集首页</a>
+    </header>
+
+    <main class="history-main">
+      <section class="history-hero">
+        <div>
+          <p class="eyebrow">LOCAL COLLECTION ARCHIVE</p>
+          <h1>历史采集结果</h1>
+          <p>浏览采集机本地保存的全部采集记录，并进入对应分析详情。</p>
+        </div>
+        <div class="history-total">
+          <strong id="history-total">0</strong>
+          <span>条记录</span>
+        </div>
+      </section>
+
+      <form class="history-filters" id="history-filters">
+        <label>
+          <span>设备类型</span>
+          <select id="history-target-type">
+            <option value="">全部类型</option>
+            <option value="linux">Linux</option>
+            <option value="windows">Windows</option>
+            <option value="security">安全设备</option>
+          </select>
+        </label>
+        <label>
+          <span>目标 IP / 主机名</span>
+          <input
+            id="history-target-ip"
+            type="search"
+            maxlength="255"
+            placeholder="输入完整或部分地址"
+          >
+        </label>
+        <label>
+          <span>分析后有效状态</span>
+          <select id="history-status">
+            <option value="">全部状态</option>
+            <option value="success">成功</option>
+            <option value="partial">部分完成</option>
+            <option value="failed">失败</option>
+          </select>
+        </label>
+        <label>
+          <span>每页数量</span>
+          <select id="history-page-size">
+            <option value="12">12</option>
+            <option value="24">24</option>
+            <option value="48">48</option>
+          </select>
+        </label>
+        <div class="history-filter-actions">
+          <button class="button button-primary" type="submit">
+            <span>筛选记录</span>
+            <small>FILTER</small>
+          </button>
+          <button class="button button-secondary" id="history-reset" type="button">
+            <span>清空筛选</span>
+            <small>RESET</small>
+          </button>
+        </div>
+      </form>
+
+      <section class="history-results" aria-live="polite">
+        <p class="history-loading" id="history-loading">正在读取历史采集记录…</p>
+        <div class="history-error" id="history-error" hidden>
+          <strong>无法读取历史记录</strong>
+          <p id="history-error-message">请检查本地结果目录和服务日志。</p>
+          <button class="text-button" id="history-retry" type="button">重新加载</button>
+        </div>
+        <div class="history-run-grid" id="history-runs" hidden></div>
+        <div class="history-empty history-archive-empty" id="history-empty" hidden>
+          <strong>没有匹配的采集记录</strong>
+          <p>连接检查任务不会写入历史；完成一次策略采集后记录会出现在这里。</p>
+        </div>
+      </section>
+
+      <nav class="history-pagination" id="history-pagination" aria-label="历史记录分页" hidden>
+        <button class="button button-secondary" id="history-prev" type="button">
+          <span>← 上一页</span>
+        </button>
+        <span id="history-page-label">第 1 / 1 页</span>
+        <button class="button button-secondary" id="history-next" type="button">
+          <span>下一页 →</span>
+        </button>
+      </nav>
+    </main>
+
+    <footer>
+      <span>LOCAL COLLECTION ARCHIVE / READ ONLY</span>
+      <span>原始采集结果保持不变</span>
+    </footer>
+    <script src="/assets/history.js" defer></script>
+  </body>
+</html>

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from policy_collector.analysis import ResultAnalysisService
 
@@ -101,6 +102,131 @@ class ResultAnalysisServiceTests(unittest.TestCase):
             self.assertEqual(analysis["target"]["custom_device_name"], "自研WAF")
             self.assertEqual(analysis["target"]["rule_file_type"], ".rules")
             self.assertEqual(analysis["target"]["deployment_mode"], "host")
+
+    def test_history_status_filter_reuses_persistent_analysis_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp)
+            modules = [
+                {
+                    "name": "Firewall",
+                    "success": True,
+                    "return_code": 0,
+                    "message": "",
+                }
+            ]
+            self._write_run(
+                output_root,
+                target_type="linux",
+                modules=modules,
+                status="success",
+            )
+            first_service = ResultAnalysisService(output_root)
+
+            first_page = first_service.query_runs(
+                page=1,
+                page_size=12,
+                status="success",
+            )
+
+            self.assertEqual(first_page["total"], 1)
+            self.assertTrue((output_root / ".history_index.json").exists())
+
+            restarted_service = ResultAnalysisService(output_root)
+            with mock.patch.object(
+                restarted_service,
+                "_analyze_path",
+                side_effect=AssertionError("不应重新分析已索引的历史任务"),
+            ):
+                cached_page = restarted_service.query_runs(
+                    page=1,
+                    page_size=12,
+                    status="success",
+                )
+
+            self.assertEqual(cached_page["total"], 1)
+            self.assertNotIn("run_dir", cached_page["items"][0])
+
+            index_path = output_root / ".history_index.json"
+            damaged_index = json.loads(index_path.read_text(encoding="utf-8"))
+            only_entry = next(iter(damaged_index["entries"].values()))
+            only_entry["item"] = {}
+            index_path.write_text(
+                json.dumps(damaged_index),
+                encoding="utf-8",
+            )
+
+            rebuilt_page = ResultAnalysisService(output_root).query_runs(
+                page=1,
+                page_size=12,
+                status="success",
+            )
+
+            self.assertEqual(rebuilt_page["total"], 1)
+            self.assertEqual(
+                rebuilt_page["items"][0]["assessment_status"],
+                "success",
+            )
+
+    def test_history_index_detects_same_size_change_with_preserved_mtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp)
+            modules = [
+                {
+                    "name": "Get-FirewallRules",
+                    "success": True,
+                    "return_code": 0,
+                    "message": "",
+                },
+                {
+                    "name": "Get-LAPSSettings",
+                    "success": False,
+                    "return_code": 1,
+                    "message": "脚本返回非零状态码 1",
+                },
+            ]
+            manifest = [
+                modules[0],
+                {
+                    **modules[1],
+                    "output_file": "Encryption/Get-LAPSSettings.txt",
+                },
+            ]
+            run_dir, _ = self._write_run(
+                output_root,
+                target_type="windows",
+                modules=modules,
+                manifest=manifest,
+            )
+            evidence_dir = run_dir / "data" / "Encryption"
+            evidence_dir.mkdir()
+            evidence_path = evidence_dir / "Get-LAPSSettings.txt"
+            evidence_path.write_text("command not found", encoding="utf-8")
+            original_stat = evidence_path.stat()
+            service = ResultAnalysisService(output_root)
+
+            success_page = service.query_runs(
+                page=1,
+                page_size=12,
+                status="success",
+            )
+            evidence_path.write_text("permission denied", encoding="utf-8")
+            os.utime(
+                evidence_path,
+                ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+            )
+            partial_page = service.query_runs(
+                page=1,
+                page_size=12,
+                status="partial",
+            )
+
+            self.assertEqual(success_page["total"], 1)
+            self.assertEqual(len("command not found"), len("permission denied"))
+            self.assertEqual(partial_page["total"], 1)
+            self.assertEqual(
+                partial_page["items"][0]["assessment_status"],
+                "partial",
+            )
 
     def test_historical_windows_run_marks_absent_laps_not_applicable(self):
         with tempfile.TemporaryDirectory() as temp:
