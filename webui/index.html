@@ -40,7 +40,7 @@
           </p>
           <div class="coverage">
             <span><b>03</b> 目标类型</span>
-            <span><b>07</b> 安全设备适配器</span>
+            <span><b>07+</b> 安全设备适配器</span>
             <span><b>00</b> 持久化凭据</span>
           </div>
         </div>
@@ -78,6 +78,56 @@
               <select id="security-device" name="security_device"></select>
               <p class="field-hint" id="adapter-hint"></p>
             </div>
+
+            <section
+              class="custom-security-fields security-only"
+              id="custom-security-fields"
+              hidden
+              aria-labelledby="custom-security-title"
+            >
+              <div class="custom-security-heading">
+                <span class="mini-label">USER DEFINED</span>
+                <h3 id="custom-security-title">自定义安全设备</h3>
+              </div>
+              <div class="custom-security-grid">
+                <div class="field">
+                  <label for="custom-device-name">设备名称</label>
+                  <input
+                    id="custom-device-name"
+                    name="custom_device_name"
+                    maxlength="80"
+                    placeholder="例如：自研 WAF"
+                  />
+                </div>
+                <div class="field">
+                  <label for="rule-file-type">规则文件类型</label>
+                  <input
+                    id="rule-file-type"
+                    name="rule_file_type"
+                    maxlength="40"
+                    placeholder=".rules、.json、.yaml"
+                    spellcheck="false"
+                  />
+                  <p class="field-hint">只采集该后缀的规则文件，可填写 rules、.rules 或 *.rules。</p>
+                </div>
+                <div class="field field-wide">
+                  <label for="deployment-mode">部署方式</label>
+                  <select id="deployment-mode" name="deployment_mode">
+                    <option value="host">宿主机（本地部署）</option>
+                    <option value="docker">Docker 容器部署</option>
+                  </select>
+                </div>
+                <div class="field field-wide custom-docker-only" hidden>
+                  <label for="custom-container-name">容器名称</label>
+                  <input
+                    id="custom-container-name"
+                    placeholder="例如：my-waf"
+                    spellcheck="false"
+                  />
+                  <p class="field-hint">请填写目标宿主机上正在运行的准确容器名称。</p>
+                </div>
+              </div>
+            </section>
 
             <section class="rule-path-card security-only" hidden aria-labelledby="rule-path-title">
               <div class="rule-path-heading">

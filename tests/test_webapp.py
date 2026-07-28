@@ -138,7 +138,10 @@ class WebAppTests(unittest.TestCase):
     def test_meta_lists_all_security_adapters_and_rejects_invalid_target(self):
         meta = self.client.get("/api/meta")
         self.assertEqual(meta.status_code, 200)
-        self.assertEqual(len(meta.json()["security_devices"]), 7)
+        devices = meta.json()["security_devices"]
+        self.assertEqual(len(devices), 8)
+        self.assertEqual(devices[-1]["key"], "custom")
+        self.assertTrue(devices[-1]["custom"])
 
         response = self.client.post(
             "/api/jobs",
@@ -161,6 +164,11 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("开始采集", response.text)
         self.assertIn("使用默认规则路径", response.text)
         self.assertIn("修改路径", response.text)
+        self.assertIn("自定义安全设备", response.text)
+        self.assertIn("规则文件类型", response.text)
+        self.assertIn("部署方式", response.text)
+        self.assertIn("custom-container-name", response.text)
+        self.assertIn("请填写目标宿主机上正在运行的准确容器名称", response.text)
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
         self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
 
@@ -196,6 +204,78 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(
             self.targets[-1].custom_paths,
             ("/srv/suricata/rules", "/data/local.rules"),
+        )
+
+    def test_user_can_submit_a_custom_host_security_device(self):
+        response = self.client.post(
+            "/api/jobs",
+            json={
+                "action": "check",
+                "target_type": "security",
+                "security_device": "custom",
+                "custom_device_name": "自研检测设备",
+                "rule_file_type": "rules",
+                "deployment_mode": "host",
+                "custom_paths": ["/opt/my-device/rules"],
+                "host": "10.0.0.88",
+                "username": "collector",
+                "password": "secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self._wait_for_job(response.json()["id"])
+        target = self.targets[-1]
+        self.assertEqual(target.security_device, "custom")
+        self.assertEqual(target.custom_device_name, "自研检测设备")
+        self.assertEqual(target.rule_file_type, ".rules")
+        self.assertEqual(target.deployment_mode, "host")
+        self.assertEqual(target.custom_paths, ("/opt/my-device/rules",))
+
+    def test_custom_security_device_rejects_missing_container_and_invalid_type(self):
+        base = {
+            "action": "check",
+            "target_type": "security",
+            "security_device": "custom",
+            "custom_device_name": "自研WAF",
+            "deployment_mode": "docker",
+            "custom_paths": ["/app/rules"],
+            "host": "10.0.0.88",
+            "username": "collector",
+            "password": "secret",
+        }
+
+        missing_container = self.client.post(
+            "/api/jobs",
+            json={**base, "rule_file_type": ".json"},
+        )
+        invalid_type = self.client.post(
+            "/api/jobs",
+            json={
+                **base,
+                "container_name": "my-waf",
+                "rule_file_type": "../../etc/passwd",
+            },
+        )
+        invalid_path = self.client.post(
+            "/api/jobs",
+            json={
+                **base,
+                "container_name": "my-waf",
+                "rule_file_type": ".rules",
+                "custom_paths": ["relative/rules"],
+            },
+        )
+
+        self.assertEqual(missing_container.status_code, 422)
+        self.assertIn("容器名称", missing_container.text)
+        self.assertEqual(invalid_type.status_code, 422)
+        self.assertIn("规则文件类型", invalid_type.text)
+        self.assertEqual(invalid_path.status_code, 422)
+        self.assertIn("绝对路径", invalid_path.text)
+        self.assertNotIn(
+            "secret",
+            missing_container.text + invalid_type.text + invalid_path.text,
         )
 
     def test_runs_api_returns_opaque_id_dual_status_and_counts(self):
@@ -260,6 +340,15 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("status-filter", analysis_script.text)
         self.assertIn("evidence_excerpt", analysis_script.text)
         self.assertIn("escapeHtml", analysis_script.text)
+
+    def test_web_assets_submit_custom_security_device_fields(self):
+        script = self.client.get("/assets/app.js")
+
+        self.assertEqual(script.status_code, 200)
+        self.assertIn("custom_device_name", script.text)
+        self.assertIn("rule_file_type", script.text)
+        self.assertIn("deployment_mode", script.text)
+        self.assertIn("custom-security-fields", script.text)
 
 
 if __name__ == "__main__":

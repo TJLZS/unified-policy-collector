@@ -22,6 +22,7 @@ SEARCH_ROOTS = (
     Path("/root"),
 )
 MAX_MATCHES_PER_PATTERN = 100
+RULE_FILE_TYPE_PATTERN = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 
 
 def safe_name(value):
@@ -63,10 +64,46 @@ def find_paths(pattern):
     return candidates
 
 
-def copy_match(source, destination):
+def normalize_rule_file_type(value):
+    if not value:
+        return None
+    normalized = str(value).strip().lower()
+    if not RULE_FILE_TYPE_PATTERN.fullmatch(normalized):
+        raise ValueError("无效的规则文件类型: {}".format(value))
+    return normalized
+
+
+def matches_rule_file_type(path, rule_file_type):
+    return (
+        not rule_file_type
+        or path.name.casefold().endswith(rule_file_type.casefold())
+    )
+
+
+def copy_match(source, destination, rule_file_type=None):
     if source.is_symlink():
         raise RuntimeError("跳过符号链接: {}".format(source))
     if source.is_dir():
+        if rule_file_type:
+            copied_files = 0
+            for child in source.rglob("*"):
+                if child.is_symlink() or not child.is_file():
+                    continue
+                if not matches_rule_file_type(child, rule_file_type):
+                    continue
+                target = destination / child.relative_to(source)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(child, target)
+                copied_files += 1
+            if copied_files == 0:
+                raise RuntimeError(
+                    "目录中未找到{}类型的规则文件: {}".format(
+                        rule_file_type,
+                        source,
+                    )
+                )
+            return
+
         def ignore_symlinks(directory, names):
             return [
                 name
@@ -82,8 +119,44 @@ def copy_match(source, destination):
             ignore=ignore_symlinks,
         )
     else:
+        if not matches_rule_file_type(source, rule_file_type):
+            raise RuntimeError(
+                "文件类型与{}不匹配: {}".format(rule_file_type, source)
+            )
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+
+def sanitize_docker_copy(destination, rule_file_type=None):
+    if destination.is_symlink():
+        destination.unlink()
+        raise RuntimeError("拒绝采集容器中的符号链接")
+    if not destination.exists():
+        raise RuntimeError("docker cp未生成本地临时副本")
+    if destination.is_file():
+        if not matches_rule_file_type(destination, rule_file_type):
+            destination.unlink()
+            raise RuntimeError("容器规则文件类型与{}不匹配".format(rule_file_type))
+        return
+    if not destination.is_dir():
+        destination.unlink()
+        raise RuntimeError("拒绝采集容器中的特殊文件")
+
+    matched = 0
+    for child in destination.rglob("*"):
+        if child.is_symlink():
+            child.unlink()
+        elif child.is_file():
+            if matches_rule_file_type(child, rule_file_type):
+                matched += 1
+            else:
+                child.unlink()
+        elif not child.is_dir():
+            child.unlink()
+    if rule_file_type and matched == 0:
+        raise RuntimeError(
+            "容器规则目录中未找到{}类型的文件".format(rule_file_type)
+        )
 
 
 def collect_filesystem(config, output):
@@ -91,6 +164,7 @@ def collect_filesystem(config, output):
     errors = []
     data_dir = output / "rules"
     data_dir.mkdir(parents=True, exist_ok=True)
+    rule_file_type = config.get("rule_file_type")
     for pattern_index, pattern in enumerate(config["paths"], 1):
         matches = find_paths(pattern)
         if not matches:
@@ -103,7 +177,7 @@ def collect_filesystem(config, output):
                 safe_name(match.name),
             )
             try:
-                copy_match(match, destination)
+                copy_match(match, destination, rule_file_type)
                 copied.append(str(match))
             except Exception as exc:
                 errors.append("复制失败 {}: {}".format(match, exc))
@@ -143,11 +217,16 @@ def select_container(config):
             )
     override = config.get("container_name")
     if override:
-        matches = [
-            item
-            for item in containers
-            if item["name"] == override or item["id"].startswith(override)
-        ]
+        if config.get("key") == "custom":
+            matches = [
+                item for item in containers if item["name"] == override
+            ]
+        else:
+            matches = [
+                item
+                for item in containers
+                if item["name"] == override or item["id"].startswith(override)
+            ]
     else:
         patterns = [item.casefold() for item in config["container_patterns"]]
         matches = [
@@ -160,7 +239,13 @@ def select_container(config):
         ]
     if not matches:
         available = ", ".join(item["name"] for item in containers) or "无运行容器"
-        raise RuntimeError("未找到匹配的WAF容器；当前容器: {}".format(available))
+        if config.get("key") == "custom":
+            raise RuntimeError(
+                "未找到指定的安全设备容器；当前容器: {}".format(available)
+            )
+        raise RuntimeError(
+            "未找到匹配的WAF容器；当前容器: {}".format(available)
+        )
     if len(matches) > 1:
         names = ", ".join(item["name"] for item in matches)
         raise RuntimeError("匹配到多个WAF容器，请显式指定容器名称: {}".format(names))
@@ -173,6 +258,7 @@ def collect_docker(config, output):
     errors = []
     data_dir = output / "rules"
     data_dir.mkdir(parents=True, exist_ok=True)
+    rule_file_type = config.get("rule_file_type")
     for index, path in enumerate(config["paths"], 1):
         destination = data_dir / "{}_{}".format(index, safe_name(Path(path).name))
         command = "docker cp {}:{} {}".format(
@@ -182,11 +268,11 @@ def collect_docker(config, output):
         )
         result = run(command, timeout=300)
         if result.returncode == 0:
-            if destination.exists():
-                for child in destination.rglob("*"):
-                    if child.is_symlink():
-                        child.unlink()
-            copied.append("{}:{}".format(container["name"], path))
+            try:
+                sanitize_docker_copy(destination, rule_file_type)
+                copied.append("{}:{}".format(container["name"], path))
+            except Exception as exc:
+                errors.append("容器规则过滤失败 {}: {}".format(path, exc))
         else:
             errors.append(
                 "容器路径采集失败 {}: {}".format(path, result.stderr.strip())
@@ -206,9 +292,12 @@ def main():
 
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     path_mode = config.get("path_mode", "default")
+    rule_file_type = config.get("rule_file_type")
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     try:
+        rule_file_type = normalize_rule_file_type(rule_file_type)
+        config["rule_file_type"] = rule_file_type
         if config.get("docker"):
             copied, errors = collect_docker(config, output)
         else:
@@ -224,6 +313,7 @@ def main():
                     "copied_paths": copied,
                     "path_mode": path_mode,
                     "output_dir": "rules",
+                    "rule_file_type": rule_file_type,
                 }
             )
         for index, error in enumerate(errors, 1):
@@ -236,6 +326,7 @@ def main():
                     "copied_paths": [],
                     "path_mode": path_mode,
                     "output_dir": "status",
+                    "rule_file_type": rule_file_type,
                 }
             )
         if not manifest:
@@ -248,6 +339,7 @@ def main():
                     "copied_paths": [],
                     "path_mode": path_mode,
                     "output_dir": "status",
+                    "rule_file_type": rule_file_type,
                 }
             )
         return_code = 0 if copied and not errors else 2
@@ -264,6 +356,7 @@ def main():
                 "copied_paths": [],
                 "path_mode": path_mode,
                 "output_dir": "status",
+                "rule_file_type": rule_file_type,
             }
         ]
     (output / "collection_manifest.json").write_text(

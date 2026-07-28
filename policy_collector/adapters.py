@@ -1,6 +1,22 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
+
+
+CUSTOM_SECURITY_DEVICE_KEY = "custom"
+_RULE_FILE_TYPE = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+
+
+def normalize_rule_file_type(value: str) -> str:
+    normalized = value.strip()
+    if normalized.startswith("*."):
+        normalized = normalized[1:]
+    elif not normalized.startswith("."):
+        normalized = "." + normalized
+    if _RULE_FILE_TYPE.fullmatch(normalized) is None:
+        raise ValueError("规则文件类型应为 rules、.rules 或 *.rules 形式")
+    return normalized.lower()
 
 
 @dataclass(frozen=True)
@@ -11,6 +27,7 @@ class SecurityDeviceAdapter:
     status_commands: tuple[str, ...] = ()
     docker: bool = False
     container_patterns: tuple[str, ...] = ()
+    rule_file_type: str | None = None
 
 
 class AdapterRegistry:

@@ -19,6 +19,9 @@ class ResultAnalysisServiceTests(unittest.TestCase):
         error=None,
         cleanup_succeeded=True,
         security_device=None,
+        custom_device_name=None,
+        rule_file_type=None,
+        deployment_mode=None,
     ):
         run_dir = (
             output_root
@@ -34,6 +37,9 @@ class ResultAnalysisServiceTests(unittest.TestCase):
             "port": 5985 if target_type == "windows" else 22,
             "username": "collector",
             "security_device": security_device,
+            "custom_device_name": custom_device_name,
+            "rule_file_type": rule_file_type,
+            "deployment_mode": deployment_mode,
             "started_at": "2026-07-26T12:00:00+00:00",
             "finished_at": "2026-07-26T12:01:00+00:00",
             "status": status,
@@ -65,6 +71,36 @@ class ResultAnalysisServiceTests(unittest.TestCase):
         listed = service.list_runs()
         self.assertEqual(len(listed), 1)
         return service.analyze(listed[0]["run_id"])
+
+    def test_custom_security_metadata_is_preserved_in_analysis_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp)
+            modules = [
+                {
+                    "name": "custom:path:/opt/acme/rules",
+                    "success": True,
+                    "return_code": 0,
+                    "message": "规则路径采集成功",
+                    "path_mode": "custom",
+                }
+            ]
+            self._write_run(
+                output_root,
+                target_type="security",
+                modules=modules,
+                manifest=modules,
+                status="success",
+                security_device="custom",
+                custom_device_name="自研WAF",
+                rule_file_type=".rules",
+                deployment_mode="host",
+            )
+
+            analysis = self._analyze_only_run(output_root)
+
+            self.assertEqual(analysis["target"]["custom_device_name"], "自研WAF")
+            self.assertEqual(analysis["target"]["rule_file_type"], ".rules")
+            self.assertEqual(analysis["target"]["deployment_mode"], "host")
 
     def test_historical_windows_run_marks_absent_laps_not_applicable(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -305,6 +341,44 @@ class ResultAnalysisServiceTests(unittest.TestCase):
             self.assertEqual(items["waf:container"]["reason_code"], "container_ambiguous")
             self.assertEqual(items["remote_cleanup"]["reason_code"], "cleanup_failed")
             self.assertEqual(analysis["assessment_status"], "failed")
+
+    def test_custom_container_not_found_uses_security_device_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp)
+            modules = [
+                {
+                    "name": "custom:container",
+                    "success": False,
+                    "return_code": 1,
+                    "message": "未找到指定的安全设备容器；当前容器: other",
+                }
+            ]
+            self._write_run(
+                output_root,
+                target_type="security",
+                modules=modules,
+                manifest=modules,
+                status="failed",
+                security_device="custom",
+                custom_device_name="自研IDS",
+                rule_file_type=".yaml",
+                deployment_mode="docker",
+            )
+
+            analysis = self._analyze_only_run(output_root)
+
+            self.assertEqual(
+                analysis["items"][0]["reason_code"],
+                "container_not_found",
+            )
+            self.assertIn(
+                "安全设备容器",
+                analysis["items"][0]["reason"],
+            )
+            self.assertNotIn(
+                "WAF",
+                " ".join(analysis["items"][0]["recommendations"]),
+            )
 
     def test_cleanup_failure_downgrades_otherwise_successful_run(self):
         with tempfile.TemporaryDirectory() as temp:

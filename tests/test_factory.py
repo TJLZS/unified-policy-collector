@@ -38,6 +38,29 @@ class CollectorFactoryTests(unittest.TestCase):
         self.assertIsInstance(security, SecurityDeviceCollector)
         self.assertEqual(security.adapter.paths, ("/runtime/rules",))
 
+    def test_factory_builds_custom_docker_adapter_from_target(self):
+        target = TargetConfig(
+            TargetType.SECURITY,
+            "10.0.0.88",
+            22,
+            "collector",
+            security_device="custom",
+            custom_paths=("/app/rules",),
+            container_name="my-waf",
+            custom_device_name="自研WAF",
+            rule_file_type=".json",
+            deployment_mode="docker",
+        )
+
+        collector = create_collector(target, Credential(password="secret"))
+
+        self.assertIsInstance(collector, SecurityDeviceCollector)
+        self.assertEqual(collector.adapter.key, "custom")
+        self.assertEqual(collector.adapter.display_name, "自研WAF")
+        self.assertEqual(collector.adapter.paths, ("/app/rules",))
+        self.assertTrue(collector.adapter.docker)
+        self.assertEqual(collector.adapter.rule_file_type, ".json")
+
 
 if __name__ == "__main__":
     unittest.main()

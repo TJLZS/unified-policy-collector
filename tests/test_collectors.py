@@ -1,5 +1,7 @@
 import io
 import json
+import os
+import runpy
 import subprocess
 import sys
 import tarfile
@@ -8,7 +10,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from policy_collector.adapters import default_registry
+from policy_collector.adapters import SecurityDeviceAdapter, default_registry
 from policy_collector.collectors import (
     LinuxCollector,
     SecurityDeviceCollector,
@@ -293,6 +295,51 @@ class SecurityCollectorTests(unittest.TestCase):
             uploaded_config = json.loads(transport.uploaded_file_content)
             self.assertEqual(uploaded_config["path_mode"], "default")
 
+    def test_custom_security_collection_uploads_dynamic_adapter_metadata(self):
+        target = TargetConfig(
+            target_type=TargetType.SECURITY,
+            host="10.0.0.88",
+            port=22,
+            username="collector",
+            security_device="custom",
+            custom_paths=("/opt/custom/rules",),
+            custom_device_name="自研设备",
+            rule_file_type=".rules",
+            deployment_mode="host",
+        )
+        transport = _FakeSSHTransport()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "remote_collect.py").write_text(
+                "print('security payload')",
+                encoding="utf-8",
+            )
+            output = root / "output"
+            output.mkdir()
+            collector = SecurityDeviceCollector(
+                target,
+                Credential(password="secret"),
+                adapter=SecurityDeviceAdapter(
+                    key="custom",
+                    display_name="自研设备",
+                    paths=("/opt/custom/rules",),
+                    rule_file_type=".rules",
+                ),
+                transport=transport,
+                payload_root=payload,
+            )
+
+            collector.collect(output)
+
+            uploaded_config = json.loads(transport.uploaded_file_content)
+            self.assertEqual(uploaded_config["display_name"], "自研设备")
+            self.assertEqual(uploaded_config["rule_file_type"], ".rules")
+            self.assertEqual(uploaded_config["path_mode"], "custom")
+            self.assertFalse(uploaded_config["docker"])
+
     def test_security_payload_reports_partial_when_one_path_is_missing(self):
         payload = (
             Path(__file__).resolve().parents[1]
@@ -348,6 +395,162 @@ class SecurityCollectorTests(unittest.TestCase):
             self.assertTrue(
                 all(item["output_dir"] in {"rules", "status"} for item in manifest)
             )
+
+    def test_custom_security_payload_filters_directory_by_rule_file_type(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            rules = root / "device-rules"
+            nested = rules / "nested"
+            nested.mkdir(parents=True)
+            (rules / "allow.rules").write_text("allow", encoding="utf-8")
+            (nested / "block.rules").write_text("block", encoding="utf-8")
+            (rules / "notes.conf").write_text("ignore", encoding="utf-8")
+            config = root / "config.json"
+            output = root / "output"
+            config.write_text(
+                json.dumps(
+                    {
+                        "key": "custom",
+                        "display_name": "自研设备",
+                        "paths": [str(rules)],
+                        "path_mode": "custom",
+                        "rule_file_type": ".rules",
+                        "status_commands": [],
+                        "docker": False,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(payload),
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            collected_names = {
+                path.name for path in (output / "rules").rglob("*") if path.is_file()
+            }
+            manifest = json.loads(
+                (output / "collection_manifest.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(collected_names, {"allow.rules", "block.rules"})
+            self.assertEqual(manifest[0]["rule_file_type"], ".rules")
+
+    def test_custom_docker_device_requires_exact_container_name(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        namespace = runpy.run_path(str(payload))
+        select_container = namespace["select_container"]
+        select_container.__globals__["run"] = lambda *_args, **_kwargs: (
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="abc123456789\tactual-device\tvendor/image:latest\n",
+                stderr="",
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "未找到指定的安全设备容器"):
+            select_container(
+                {
+                    "key": "custom",
+                    "container_name": "abc123",
+                    "container_patterns": [],
+                }
+            )
+
+        selected = select_container(
+            {
+                "key": "custom",
+                "container_name": "actual-device",
+                "container_patterns": [],
+            }
+        )
+        self.assertEqual(selected["name"], "actual-device")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "需要POSIX命名管道支持")
+    def test_docker_rule_filter_removes_special_files(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        sanitize_docker_copy = runpy.run_path(str(payload))[
+            "sanitize_docker_copy"
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "docker-copy"
+            destination.mkdir()
+            (destination / "allow.rules").write_text("allow", encoding="utf-8")
+            fifo = destination / "runtime.pipe"
+            os.mkfifo(fifo)
+
+            sanitize_docker_copy(destination, ".rules")
+
+            self.assertTrue((destination / "allow.rules").exists())
+            self.assertFalse(fifo.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "需要POSIX命名管道支持")
+    def test_docker_rule_filter_rejects_top_level_special_file(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        sanitize_docker_copy = runpy.run_path(str(payload))[
+            "sanitize_docker_copy"
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            fifo = Path(temp) / "docker-copy"
+            os.mkfifo(fifo)
+
+            with self.assertRaisesRegex(RuntimeError, "特殊文件"):
+                sanitize_docker_copy(fifo, ".rules")
+
+            self.assertFalse(fifo.exists())
+
+    @unittest.skipUnless(os.name == "posix", "需要POSIX符号链接支持")
+    def test_docker_rule_filter_removes_dangling_top_level_symlink(self):
+        payload = (
+            Path(__file__).resolve().parents[1]
+            / "payloads"
+            / "security"
+            / "remote_collect.py"
+        )
+        sanitize_docker_copy = runpy.run_path(str(payload))[
+            "sanitize_docker_copy"
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "docker-copy"
+            destination.symlink_to(Path(temp) / "missing-target")
+
+            with self.assertRaisesRegex(RuntimeError, "符号链接"):
+                sanitize_docker_copy(destination, ".rules")
+
+            self.assertFalse(destination.is_symlink())
 
 
 if __name__ == "__main__":

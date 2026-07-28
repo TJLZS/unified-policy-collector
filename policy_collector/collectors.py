@@ -11,7 +11,11 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from .adapters import SecurityDeviceAdapter, default_registry
+from .adapters import (
+    CUSTOM_SECURITY_DEVICE_KEY,
+    SecurityDeviceAdapter,
+    default_registry,
+)
 from .errors import CollectorError, TransportError
 from .models import Credential, ModuleResult, TargetConfig
 from .transports import SSHTransport, WinRMTransport
@@ -287,6 +291,9 @@ class SecurityDeviceCollector:
     def check(self) -> dict[str, object]:
         details = dict(self.transport.check())
         details["security_device"] = self.adapter.key
+        details["security_device_name"] = self.adapter.display_name
+        if self.adapter.rule_file_type:
+            details["rule_file_type"] = self.adapter.rule_file_type
         if self.adapter.docker:
             result = self.transport.run(
                 "docker version --format '{{.Server.Version}}'",
@@ -315,12 +322,15 @@ class SecurityDeviceCollector:
             raise TransportError(f"无法创建安全设备临时目录: {mkdir.stderr}")
         self.transport.upload_tree(self.payload_root, remote_payload)
 
-        default_paths = default_registry().resolve(self.adapter.key).paths
-        path_mode = (
-            "custom"
-            if self.target.custom_paths or self.adapter.paths != default_paths
-            else "default"
-        )
+        if self.adapter.key == CUSTOM_SECURITY_DEVICE_KEY:
+            path_mode = "custom"
+        else:
+            default_paths = default_registry().resolve(self.adapter.key).paths
+            path_mode = (
+                "custom"
+                if self.target.custom_paths or self.adapter.paths != default_paths
+                else "default"
+            )
         config = {
             "key": self.adapter.key,
             "display_name": self.adapter.display_name,
@@ -330,6 +340,7 @@ class SecurityDeviceCollector:
             "docker": self.adapter.docker,
             "container_patterns": list(self.adapter.container_patterns),
             "container_name": self.target.container_name,
+            "rule_file_type": self.adapter.rule_file_type,
         }
         with tempfile.NamedTemporaryFile(
             mode="w",

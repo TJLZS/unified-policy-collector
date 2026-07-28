@@ -52,7 +52,13 @@ function renderOverview() {
     target.target_ip || "未知目标";
   document.querySelector("#analysis-meta").textContent = [
     target.target_type || "未知设备",
-    target.security_device || null,
+    target.custom_device_name || target.security_device || null,
+    target.rule_file_type || null,
+    target.deployment_mode === "docker"
+      ? "Docker 容器部署"
+      : target.deployment_mode === "host"
+        ? "宿主机部署"
+        : null,
     formatTime(report.started_at),
     `端口 ${target.port ?? "—"}`,
   ]

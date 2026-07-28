@@ -17,7 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from starlette.responses import Response
 
-from .adapters import AdapterRegistry, default_registry
+from .adapters import (
+    CUSTOM_SECURITY_DEVICE_KEY,
+    AdapterRegistry,
+    default_registry,
+    normalize_rule_file_type,
+)
 from .analysis import ResultAnalysisService, RunNotFoundError
 from .factory import create_collector
 from .models import Credential, TargetConfig, TargetType
@@ -46,6 +51,9 @@ class JobRequest(BaseModel):
     security_device: str | None = None
     custom_paths: list[str] = Field(default_factory=list, max_length=30)
     container_name: str | None = None
+    custom_device_name: str | None = Field(default=None, max_length=80)
+    rule_file_type: str | None = Field(default=None, max_length=40)
+    deployment_mode: Literal["host", "docker"] | None = None
     winrm_https: bool = False
     winrm_insecure: bool = False
     trust_new_host_key: bool = False
@@ -132,15 +140,33 @@ class JobService:
         target_type = TargetType(request.target_type)
         if request.winrm_insecure and not request.winrm_https:
             raise ValueError("忽略证书校验只能与HTTPS WinRM同时启用")
-        if target_type is TargetType.SECURITY:
-            if not request.security_device:
-                raise ValueError("安全设备目标必须选择设备类型")
-            security_device = self.registry.resolve(request.security_device).key
-        else:
-            security_device = None
         custom_paths = tuple(
             path.strip() for path in request.custom_paths if path.strip()
         )
+        if target_type is TargetType.SECURITY:
+            if not request.security_device:
+                raise ValueError("安全设备目标必须选择设备类型")
+            if request.security_device == CUSTOM_SECURITY_DEVICE_KEY:
+                security_device = CUSTOM_SECURITY_DEVICE_KEY
+                custom_device_name = (request.custom_device_name or "").strip()
+                if not custom_device_name or any(
+                    ord(character) < 32 for character in custom_device_name
+                ):
+                    raise ValueError("自定义安全设备必须填写有效的设备名称")
+                rule_file_type = normalize_rule_file_type(
+                    request.rule_file_type or ""
+                )
+                deployment_mode = request.deployment_mode
+            else:
+                security_device = self.registry.resolve(request.security_device).key
+                custom_device_name = None
+                rule_file_type = None
+                deployment_mode = None
+        else:
+            security_device = None
+            custom_device_name = None
+            rule_file_type = None
+            deployment_mode = None
         if target_type is not TargetType.SECURITY and custom_paths:
             raise ValueError("只有安全设备支持自定义规则路径")
         if request.port is not None:
@@ -162,6 +188,9 @@ class JobService:
                 if request.container_name and request.container_name.strip()
                 else None
             ),
+            custom_device_name=custom_device_name,
+            rule_file_type=rule_file_type,
+            deployment_mode=deployment_mode,
             winrm_https=request.winrm_https,
             winrm_insecure=request.winrm_insecure,
             trust_new_host_key=request.trust_new_host_key,
@@ -315,13 +344,22 @@ def create_app(service: JobService | None = None) -> FastAPI:
                 {"key": "security", "name": "安全设备", "default_port": 22},
             ],
             "security_devices": [
+                *[
+                    {
+                        "key": adapter.key,
+                        "name": adapter.display_name,
+                        "docker": adapter.docker,
+                        "paths": list(adapter.paths),
+                    }
+                    for adapter in active_service.registry.all()
+                ],
                 {
-                    "key": adapter.key,
-                    "name": adapter.display_name,
-                    "docker": adapter.docker,
-                    "paths": list(adapter.paths),
-                }
-                for adapter in active_service.registry.all()
+                    "key": CUSTOM_SECURITY_DEVICE_KEY,
+                    "name": "自定义安全设备",
+                    "docker": False,
+                    "paths": [],
+                    "custom": True,
+                },
             ],
         }
 

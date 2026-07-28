@@ -12,7 +12,7 @@ from .adapters import default_registry
 from .security import redact_text
 
 
-ANALYZER_VERSION = 1
+ANALYZER_VERSION = 2
 REPORT_NAME = "analysis_report.json"
 MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_EVIDENCE_CHARS = 1200
@@ -108,11 +108,11 @@ RECOMMENDATIONS = {
         "确认采集账号对规则目录具有只读权限。",
     ],
     "container_not_found": [
-        "在宿主机执行 docker ps，核对WAF容器名称和镜像。",
-        "自动识别失败时在高级选项中显式填写容器名称。",
+        "在宿主机执行 docker ps，核对安全设备容器名称和镜像。",
+        "在采集表单中填写准确且唯一的容器名称。",
     ],
     "container_ambiguous": [
-        "在高级选项中填写唯一的容器名称或容器ID前缀。",
+        "在采集表单中填写准确且唯一的容器名称。",
     ],
     "transport_failed": [
         "重新执行连接检查，核对端口、认证、路由及主机指纹。",
@@ -138,8 +138,8 @@ REASON_EXPLANATIONS = {
     "not_domain_joined": "目标未加入域，域相关策略不适用。",
     "feature_absent": "目标未安装或未启用该条件功能。",
     "path_missing": "未找到要求采集的规则路径。",
-    "container_not_found": "未找到匹配的WAF容器。",
-    "container_ambiguous": "匹配到多个WAF容器，无法唯一确定采集目标。",
+    "container_not_found": "未找到指定的安全设备容器。",
+    "container_ambiguous": "匹配到多个安全设备容器，无法唯一确定采集目标。",
     "transport_failed": "连接、认证、上传或下载等传输流程失败。",
     "archive_failed": "远程采集结果打包失败。",
     "cleanup_failed": "远程临时目录未能成功清理。",
@@ -314,6 +314,9 @@ class ResultAnalysisService:
                 "port": summary.get("port"),
                 "username": summary.get("username"),
                 "security_device": summary.get("security_device"),
+                "custom_device_name": summary.get("custom_device_name"),
+                "rule_file_type": summary.get("rule_file_type"),
+                "deployment_mode": summary.get("deployment_mode"),
             },
             "started_at": summary.get("started_at"),
             "finished_at": summary.get("finished_at"),
@@ -467,7 +470,11 @@ class ResultAnalysisService:
         combined = f"{message}\n{evidence}".casefold()
         if "匹配到多个" in combined:
             code = "container_ambiguous"
-        elif "未找到匹配的waf容器" in combined or "no such container" in combined:
+        elif (
+            "未找到匹配的waf容器" in combined
+            or "未找到指定的安全设备容器" in combined
+            or "no such container" in combined
+        ):
             code = "container_not_found"
         elif (
             str(source.get("path_mode") or "")

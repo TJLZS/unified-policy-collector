@@ -18,6 +18,15 @@ const editPathsButton = document.querySelector("#edit-paths");
 const resetPathsButton = document.querySelector("#reset-paths");
 const pathMode = document.querySelector("#path-mode");
 const pathStatus = document.querySelector("#path-status");
+const customSecurityFields = document.querySelector("#custom-security-fields");
+const customDeviceNameInput = document.querySelector("#custom-device-name");
+const ruleFileTypeInput = document.querySelector("#rule-file-type");
+const deploymentModeInput = document.querySelector("#deployment-mode");
+const containerNameInput = document.querySelector("#container-name");
+const customContainerNameInput = document.querySelector(
+  "#custom-container-name",
+);
+const customDockerField = document.querySelector(".custom-docker-only");
 
 let metadata = { security_devices: [] };
 let activeJobs = [];
@@ -44,23 +53,51 @@ function selectedAdapter() {
   );
 }
 
+function isCustomSecurity() {
+  const adapter = selectedAdapter();
+  return Boolean(adapter && (adapter.custom || adapter.key === "custom"));
+}
+
+function updateDeploymentFields() {
+  const adapter = selectedAdapter();
+  const custom = targetType() === "security" && isCustomSecurity();
+  const docker = custom
+    ? deploymentModeInput.value === "docker"
+    : Boolean(adapter && adapter.docker);
+  document.querySelectorAll(".docker-only").forEach((element) => {
+    element.hidden = targetType() !== "security" || !docker || custom;
+  });
+  customDockerField.hidden = !custom || !docker;
+  customContainerNameInput.required = custom && docker;
+  containerNameInput.required = false;
+  if (custom) {
+    containerNameInput.value = "";
+  } else {
+    customContainerNameInput.value = "";
+  }
+}
+
 function setPathEditing(editing) {
-  pathsEditing = editing;
-  defaultPaths.hidden = editing;
-  customPathEditor.hidden = !editing;
-  editPathsButton.hidden = editing;
-  pathMode.textContent = editing ? "自定义" : "默认";
-  pathMode.classList.toggle("path-mode-custom", editing);
-  pathStatus.textContent = editing
-    ? "将使用下面的自定义路径；每行可以填写一个文件或目录。"
-    : "使用默认规则路径；不修改即可直接采集。";
-  if (editing) {
+  const custom = isCustomSecurity();
+  const effectiveEditing = custom || editing;
+  pathsEditing = effectiveEditing;
+  defaultPaths.hidden = effectiveEditing;
+  customPathEditor.hidden = !effectiveEditing;
+  editPathsButton.hidden = effectiveEditing;
+  resetPathsButton.hidden = custom;
+  pathMode.textContent = custom ? "必填" : effectiveEditing ? "自定义" : "默认";
+  pathMode.classList.toggle("path-mode-custom", effectiveEditing);
+  pathStatus.textContent = custom
+    ? "自定义设备必须填写至少一个规则文件或目录路径。"
+    : effectiveEditing
+      ? "将使用下面的自定义路径；每行可以填写一个文件或目录。"
+      : "使用默认规则路径；不修改即可直接采集。";
+  if (effectiveEditing) {
     const adapter = selectedAdapter();
-    if (adapter && !customPathsInput.value.trim()) {
+    if (!custom && adapter && !customPathsInput.value.trim()) {
       customPathsInput.value = adapter.paths.join("\n");
     }
-    customPathsInput.required = true;
-    customPathsInput.focus();
+    customPathsInput.required = targetType() === "security";
   } else {
     customPathsInput.required = false;
     customPathsInput.value = "";
@@ -70,18 +107,25 @@ function setPathEditing(editing) {
 function updateAdapter() {
   const adapter = selectedAdapter();
   if (!adapter) return;
-  const mode = adapter.docker ? "Docker 宿主机采集" : "SSH 文件采集";
-  adapterHint.textContent = `${mode} · 默认检查 ${adapter.paths.length} 个规则路径`;
-  document.querySelectorAll(".docker-only").forEach((element) => {
-    element.hidden = !adapter.docker;
-  });
+  const custom = isCustomSecurity();
+  customSecurityFields.hidden = !custom;
+  customDeviceNameInput.required = custom;
+  ruleFileTypeInput.required = custom;
+  deploymentModeInput.required = custom;
+  adapterHint.textContent = custom
+    ? "通过 SSH 连接目标；填写设备信息后按指定路径和文件类型采集。"
+    : `${adapter.docker ? "Docker 宿主机采集" : "SSH 文件采集"} · 默认检查 ${adapter.paths.length} 个规则路径`;
   if (displayedAdapterKey !== adapter.key) {
+    customPathsInput.value = "";
     displayedAdapterKey = adapter.key;
     defaultPaths.innerHTML = adapter.paths
       .map((path) => `<code>${escapeHtml(path)}</code>`)
       .join("");
-    setPathEditing(false);
+    setPathEditing(custom);
   }
+  customPathsInput.required =
+    targetType() === "security" && pathsEditing;
+  updateDeploymentFields();
 }
 
 function updateTargetFields(resetPort = true) {
@@ -97,6 +141,14 @@ function updateTargetFields(resetPort = true) {
   });
   sudoPasswordField.hidden = type === "windows" || !useSudoInput.checked;
   if (type !== "security") {
+    customSecurityFields.hidden = true;
+    customDeviceNameInput.required = false;
+    ruleFileTypeInput.required = false;
+    deploymentModeInput.required = false;
+    customPathsInput.required = false;
+    containerNameInput.required = false;
+    customContainerNameInput.required = false;
+    customDockerField.hidden = true;
     document.querySelectorAll(".docker-only").forEach((element) => {
       element.hidden = true;
     });
@@ -265,6 +317,7 @@ function startPolling() {
 }
 
 function requestPayload(action) {
+  const custom = targetType() === "security" && isCustomSecurity();
   const paths = customPathsInput.value
     .split(/\r?\n/)
     .map((value) => value.trim())
@@ -281,10 +334,16 @@ function requestPayload(action) {
     security_device:
       targetType() === "security" ? securitySelect.value : null,
     custom_paths:
-      targetType() === "security" && pathsEditing ? paths : [],
+      targetType() === "security" && (custom || pathsEditing) ? paths : [],
+    custom_device_name: custom ? customDeviceNameInput.value.trim() : null,
+    rule_file_type: custom ? ruleFileTypeInput.value.trim() : null,
+    deployment_mode: custom ? deploymentModeInput.value : null,
     container_name:
       targetType() === "security"
-        ? form.elements.container_name.value.trim() || null
+        ? (custom
+            ? customContainerNameInput.value
+            : containerNameInput.value
+          ).trim() || null
         : null,
     winrm_https: targetType() === "windows" && httpsInput.checked,
     winrm_insecure:
@@ -353,6 +412,7 @@ async function initialize() {
 form.addEventListener("change", (event) => {
   if (event.target.name === "target_type") updateTargetFields();
   if (event.target === securitySelect) updateAdapter();
+  if (event.target === deploymentModeInput) updateDeploymentFields();
   if (event.target === useSudoInput) {
     sudoPasswordField.hidden = !useSudoInput.checked;
   }

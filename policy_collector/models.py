@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from .adapters import CUSTOM_SECURITY_DEVICE_KEY, normalize_rule_file_type
+
 
 class TargetType(str, Enum):
     LINUX = "linux"
@@ -38,6 +40,9 @@ class TargetConfig:
     security_device: str | None = None
     custom_paths: tuple[str, ...] = ()
     container_name: str | None = None
+    custom_device_name: str | None = None
+    rule_file_type: str | None = None
+    deployment_mode: str | None = None
     winrm_https: bool = False
     winrm_insecure: bool = False
     trust_new_host_key: bool = False
@@ -51,6 +56,29 @@ class TargetConfig:
             raise ValueError("用户名不能为空")
         if self.target_type is TargetType.SECURITY and not self.security_device:
             raise ValueError("安全设备目标必须指定设备类型")
+        if self.security_device == CUSTOM_SECURITY_DEVICE_KEY:
+            if not self.custom_device_name:
+                raise ValueError("自定义安全设备必须填写设备名称")
+            if not self.rule_file_type:
+                raise ValueError("自定义安全设备必须填写规则文件类型")
+            object.__setattr__(
+                self,
+                "rule_file_type",
+                normalize_rule_file_type(self.rule_file_type),
+            )
+            if self.deployment_mode not in {"host", "docker"}:
+                raise ValueError("自定义安全设备必须选择宿主机或Docker部署")
+            if not self.custom_paths:
+                raise ValueError("自定义安全设备必须填写至少一个规则存储路径")
+            if any(
+                len(path) > 4096
+                or not path.startswith("/")
+                or any(ord(character) < 32 for character in path)
+                for path in self.custom_paths
+            ):
+                raise ValueError("自定义规则存储位置必须是有效的Linux绝对路径")
+            if self.deployment_mode == "docker" and not self.container_name:
+                raise ValueError("Docker部署的自定义设备必须填写容器名称")
 
     def public_description(self) -> dict[str, object]:
         description: dict[str, object] = {
@@ -61,6 +89,12 @@ class TargetConfig:
         }
         if self.security_device:
             description["security_device"] = self.security_device
+        if self.custom_device_name:
+            description["custom_device_name"] = self.custom_device_name
+        if self.rule_file_type:
+            description["rule_file_type"] = self.rule_file_type
+        if self.deployment_mode:
+            description["deployment_mode"] = self.deployment_mode
         return description
 
 

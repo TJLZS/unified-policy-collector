@@ -309,6 +309,38 @@ fieldset {
   line-height: 1.5;
 }
 
+.custom-security-fields {
+  margin: 2px 0 22px;
+  padding: 14px;
+  border: 1px solid rgba(255, 184, 107, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 184, 107, 0.055),
+    rgba(6, 20, 15, 0.4)
+  );
+}
+
+.custom-security-heading {
+  margin-bottom: 14px;
+}
+
+.custom-security-heading h3 {
+  margin: 5px 0 0;
+  color: var(--amber);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.custom-security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.custom-security-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
 .rule-path-card {
   margin: 2px 0 22px;
   border: 1px solid var(--line);
@@ -1188,8 +1220,13 @@ footer {
   .advanced-grid,
   .form-actions,
   .run-grid,
-  .analysis-toolbar {
+  .analysis-toolbar,
+  .custom-security-grid {
     grid-template-columns: 1fr;
+  }
+
+  .custom-security-grid .field-wide {
+    grid-column: auto;
   }
 
   .coverage {
